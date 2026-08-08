@@ -55,6 +55,12 @@ struct ImageTile {
     colors: Vec<Color>,
 }
 
+#[derive(Debug)]
+struct FrameMatch {
+    frame_index: u64,
+    frame_type: String,
+}
+
 const GRIDS_X: u32 = 3;
 const GRIDS_Y: u32 = 3;
 
@@ -92,7 +98,93 @@ fn main() {
         .expect("Failed to load image");
     println!("    Image color data processed");
 
-    
+
+    println!("Searching nearest matches...");
+    let total_tiles = MOSAIC_TILES * MOSAIC_TILES;
+    let mut selected_frames: Vec<FrameMatch> = Vec::with_capacity(total_tiles as usize);
+
+    for tile_y in 0..MOSAIC_TILES {
+        for tile_x in 0..MOSAIC_TILES {
+            let tile_index = (tile_y * MOSAIC_TILES + tile_x) as usize;
+            let candidate = &image_data.tiles[tile_index];
+
+            let frame_match = find_nearest_color(&data, &candidate);
+            selected_frames.push(frame_match);
+
+            let tile_number = tile_index + 1;
+            print!("\r    Matched tile {tile_number}/{total_tiles}");
+            std::io::stdout().flush().unwrap();
+        }
+    }
+    println!("");
+    println!("    Done!");
+
+
+}
+
+const RED_BIAS: u64 = 3;
+const GREEN_BIAS: u64 = 6;
+const BLUE_BIAS: u64 = 1;
+
+fn find_nearest_color(database: &HashMap<u64, FrameData>, candidate: &ImageTile) -> FrameMatch {
+    let mut nearest_match = FrameMatch { 
+        frame_index: 0,
+        frame_type: String::from("ff"),
+    };
+    let mut smallest_distance = std::u64::MAX;
+
+    for (frame_index, frame) in database {
+        let full_frame_dist = check_distance(&frame.full_frame, candidate);
+        let top_left_dist = check_distance(&frame.top_left, candidate);
+        let top_right_dist = check_distance(&frame.top_right, candidate);
+        let bottom_left_dist = check_distance(&frame.bottom_left, candidate);
+        let bottom_right_dist = check_distance(&frame.bottom_right, candidate);
+        let center_frame_dist = check_distance(&frame.center_frame, candidate);
+
+        let candidates = [
+            (full_frame_dist, "ff"),
+            (top_left_dist, "tl"),
+            (top_right_dist, "tr"),
+            (bottom_left_dist, "bl"),
+            (bottom_right_dist, "br"),
+            (center_frame_dist, "cf"),
+        ];
+
+        let (smallest_candidate, frame_type) = candidates
+            .iter()
+            .min_by_key(|(dist, _)| dist)
+            .unwrap();
+
+        if *smallest_candidate < smallest_distance {
+			nearest_match = FrameMatch {
+                frame_index: *frame_index,
+                frame_type: String::from(*frame_type),
+            };
+			smallest_distance = *smallest_candidate;
+		}
+    }
+
+    nearest_match
+}
+
+fn check_distance(frame_colors: &[Color], candidate: &ImageTile) -> u64 {
+    let mut distance: u64 = 0;
+
+    for i in 0..candidate.colors.len() {
+        let frame_color = &frame_colors[i];
+        let image_color = &candidate.colors[i];
+
+        let red_dist = frame_color.r.abs_diff(image_color.r) as u64;
+        let green_dist = frame_color.g.abs_diff(image_color.g) as u64;
+        let blue_dist = frame_color.b.abs_diff(image_color.b) as u64;
+
+        distance +=
+            (RED_BIAS * red_dist * red_dist) +
+            (GREEN_BIAS * green_dist * green_dist) +
+            (BLUE_BIAS * blue_dist * blue_dist);
+    }
+
+    return distance;
 }
 
 fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaData) -> Result<(), Box<dyn Error>> {
