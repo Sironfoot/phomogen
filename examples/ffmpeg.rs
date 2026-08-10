@@ -1,10 +1,12 @@
 use std::error::Error;
 use std::fs::{File, exists};
 use std::collections::HashMap;
+use std::ops::Index;
 use std::process::{Command, Stdio};
 use std::io::{self, BufRead, Read, Write};
 
-use image::GenericImageView;
+use image::{GenericImage, GenericImageView, ImageBuffer, Rgb, RgbImage, imageops};
+use image::imageops::FilterType;
 
 struct VideoMetaData {
     width: u32,
@@ -57,6 +59,7 @@ struct ImageTile {
 
 #[derive(Debug)]
 struct FrameMatch {
+    tile_index: u64,
     frame_index: u64,
     frame_type: String,
 }
@@ -108,7 +111,8 @@ fn main() {
             let tile_index = (tile_y * MOSAIC_TILES + tile_x) as usize;
             let candidate = &image_data.tiles[tile_index];
 
-            let frame_match = find_nearest_color(&data, &candidate);
+            let frame_match = find_nearest_color(&data, &candidate, tile_index as u64);
+            
             selected_frames.push(frame_match);
 
             let tile_number = tile_index + 1;
@@ -119,15 +123,127 @@ fn main() {
     println!("");
     println!("    Done!");
 
+    println!("Generating Mosaic...");
+    generate_mosaic(video_path, &selected_frames, &meta_data)
+        .expect("Error generating Mosaic");
+}
 
+fn generate_mosaic(video_path: &str, selected_frames: &[FrameMatch], meta_data: &VideoMetaData) -> Result<(), Box<dyn Error>> {
+    // let selected_frames = selected_frames
+    //     .sort_by_key(|frame_match| frame_match.frame_index);
+    
+    let mut child = Command::new("ffmpeg")
+        .args([
+            //"-hwaccel", "videotoolbox", // THIS MAKES IT RUN SLOWER
+            "-i", video_path,
+
+            "-vf", &format!("scale={RESIZE_WIDTH}:{RESIZE_HEIGHT}:flags=area"),
+
+            // No audio/subtitles/data output
+            "-an",
+            "-sn",
+            "-dn",
+
+            // Raw RGB pixels
+            "-f", "rawvideo",
+            "-pix_fmt", "rgb24",
+
+            // Output to stdout
+            "pipe:1",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+
+    let frame_size = RESIZE_WIDTH * RESIZE_HEIGHT * BYTES_PER_PIXEL;
+
+    let mut stdout = child.stdout.take().unwrap();
+    let mut buffer = vec![0u8; frame_size as usize];
+
+    let mut frame_index: u64 = 0;
+    let total_frames = meta_data.total_frames;
+
+    let cell_width: u32 = 480;
+    let cell_height: u32 = 270;
+
+    let full_image_width = cell_width * MOSAIC_TILES;
+    let full_image_height = cell_height * MOSAIC_TILES;
+    let mut canvas: ImageBuffer<Rgb<u8>, Vec<u8>> = RgbImage::new(full_image_width, full_image_height);
+
+    loop {
+        match stdout.read_exact(&mut buffer) {
+            Ok(()) => {
+                let percentage_complete = (frame_index as f64 / total_frames as f64) * 100.0;
+                print!("\r    Frame: {frame_index}/{total_frames} - ({:.2}%)", percentage_complete);
+                std::io::stdout().flush().unwrap();
+
+                let matches = selected_frames.iter()
+                    .filter(|frame_match| frame_match.frame_index == frame_index);
+
+                for matched in matches {
+                    let pixels = buffer.to_vec();
+                    let mut image = RgbImage::from_raw(RESIZE_WIDTH, RESIZE_HEIGHT, pixels).unwrap();
+
+                    let image_area = match matched.frame_type.as_str() {
+                        "ff" => image,
+                        "tl" => {
+                            imageops::crop(&mut image, 0, 0, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2).to_image()
+                        },
+                        "tr" => {
+                            imageops::crop(&mut image, RESIZE_WIDTH / 2, 0, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2).to_image()
+                        },
+                        "bl" => {
+                            imageops::crop(&mut image, 0, RESIZE_HEIGHT / 2, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2).to_image()
+                        },
+                        "br" => {
+                            imageops::crop(&mut image, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2).to_image()
+                        },
+                        "cf" => {
+                            imageops::crop(&mut image, RESIZE_WIDTH / 4, RESIZE_HEIGHT / 4, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2).to_image()
+                        },
+                        _ => panic!("Invalid frame_type"),
+                    };
+
+                    let resized = imageops::resize(&image_area, cell_width, cell_height, FilterType::Triangle);
+    
+                    let row = matched.tile_index as u32 / MOSAIC_TILES;
+                    let col = matched.tile_index as u32 % MOSAIC_TILES;
+
+                    canvas.copy_from(&resized, col * cell_width, row * cell_height).unwrap();
+                }
+ 
+                frame_index += 1;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                break;
+            }
+            Err(error) => {
+                panic!("Failed reading ffmpeg output: {error}");
+            }
+        }
+    }
+
+    println!("");
+    println!("    Done");
+
+    let status = child.wait().unwrap();
+
+    if !status.success() {
+        panic!("ffmpeg failed!");
+    }
+
+    canvas.save("test-output.png").unwrap();
+
+    Ok(())
 }
 
 const RED_BIAS: u64 = 3;
 const GREEN_BIAS: u64 = 6;
 const BLUE_BIAS: u64 = 1;
 
-fn find_nearest_color(database: &HashMap<u64, FrameData>, candidate: &ImageTile) -> FrameMatch {
-    let mut nearest_match = FrameMatch { 
+fn find_nearest_color(database: &HashMap<u64, FrameData>, candidate: &ImageTile, tile_index: u64) -> FrameMatch {
+    let mut nearest_match = FrameMatch {
+        tile_index: tile_index,
         frame_index: 0,
         frame_type: String::from("ff"),
     };
@@ -157,6 +273,7 @@ fn find_nearest_color(database: &HashMap<u64, FrameData>, candidate: &ImageTile)
 
         if *smallest_candidate < smallest_distance {
 			nearest_match = FrameMatch {
+                tile_index: tile_index,
                 frame_index: *frame_index,
                 frame_type: String::from(*frame_type),
             };
