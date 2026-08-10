@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::fs::{File, exists};
 use std::collections::HashMap;
-use std::ops::Index;
 use std::process::{Command, Stdio};
 use std::io::{self, BufRead, Read, Write};
 
@@ -25,11 +24,16 @@ struct Color {
 #[derive(Debug)]
 struct FrameData {
     full_frame: Vec<Color>,
-    top_left: Vec<Color>,
-    top_right: Vec<Color>,
-    bottom_left: Vec<Color>,
-    bottom_right: Vec<Color>,
-    center_frame: Vec<Color>,
+    crops: Vec<FrameCrop>,
+}
+
+#[derive(Debug)]
+struct FrameCrop {
+    resize_percentage: f64,
+    pos_x_percentage: f64,
+    pos_y_percentage: f64,
+
+    colors: Vec<Color>,
 }
 
 impl FrameData {
@@ -38,11 +42,7 @@ impl FrameData {
 
         FrameData {
             full_frame: Vec::with_capacity(grid_tiles),
-            top_left: Vec::with_capacity(grid_tiles),
-            top_right: Vec::with_capacity(grid_tiles),
-            bottom_left: Vec::with_capacity(grid_tiles),
-            bottom_right: Vec::with_capacity(grid_tiles),
-            center_frame: Vec::with_capacity(grid_tiles),
+            crops: vec![],
         }
     }
 }
@@ -61,7 +61,10 @@ struct ImageTile {
 struct FrameMatch {
     tile_index: u64,
     frame_index: u64,
-    frame_type: String,
+    
+    crop_resize: f64,
+    crop_pos_x: f64,
+    crop_pos_y: f64,
 }
 
 const GRIDS_X: u32 = 3;
@@ -184,27 +187,17 @@ fn generate_mosaic(video_path: &str, selected_frames: &[FrameMatch], meta_data: 
                     let pixels = buffer.to_vec();
                     let mut image = RgbImage::from_raw(RESIZE_WIDTH, RESIZE_HEIGHT, pixels).unwrap();
 
-                    let image_area = match matched.frame_type.as_str() {
-                        "ff" => image,
-                        "tl" => {
-                            imageops::crop(&mut image, 0, 0, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2).to_image()
-                        },
-                        "tr" => {
-                            imageops::crop(&mut image, RESIZE_WIDTH / 2, 0, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2).to_image()
-                        },
-                        "bl" => {
-                            imageops::crop(&mut image, 0, RESIZE_HEIGHT / 2, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2).to_image()
-                        },
-                        "br" => {
-                            imageops::crop(&mut image, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2).to_image()
-                        },
-                        "cf" => {
-                            imageops::crop(&mut image, RESIZE_WIDTH / 4, RESIZE_HEIGHT / 4, RESIZE_WIDTH / 2, RESIZE_HEIGHT / 2).to_image()
-                        },
-                        _ => panic!("Invalid frame_type"),
-                    };
+                    if matched.crop_resize < 100.0 {
+                        let pos_x = f64::round((RESIZE_WIDTH as f64 / 100.0) * matched.crop_pos_x) as u32;
+                        let pos_y = f64::round((RESIZE_HEIGHT as f64 / 100.0) * matched.crop_pos_y) as u32;
 
-                    let resized = imageops::resize(&image_area, cell_width, cell_height, FilterType::Triangle);
+                        let cropped_width = f64::round( (RESIZE_WIDTH as f64 / 100.0) * matched.crop_resize) as u32;
+                        let cropped_height = f64::round( (RESIZE_HEIGHT as f64 / 100.0) * matched.crop_resize) as u32;
+
+                        image = imageops::crop(&mut image, pos_x, pos_y, cropped_width, cropped_height).to_image();
+                    }
+
+                    let resized = imageops::resize(&image, cell_width, cell_height, FilterType::Triangle);
     
                     let row = matched.tile_index as u32 / MOSAIC_TILES;
                     let col = matched.tile_index as u32 % MOSAIC_TILES;
@@ -245,40 +238,40 @@ fn find_nearest_color(database: &HashMap<u64, FrameData>, candidate: &ImageTile,
     let mut nearest_match = FrameMatch {
         tile_index: tile_index,
         frame_index: 0,
-        frame_type: String::from("ff"),
+        crop_resize: 100.0,
+        crop_pos_x: 0.0,
+        crop_pos_y: 0.0,
     };
     let mut smallest_distance = std::u64::MAX;
 
     for (frame_index, frame) in database {
         let full_frame_dist = check_distance(&frame.full_frame, candidate);
-        let top_left_dist = check_distance(&frame.top_left, candidate);
-        let top_right_dist = check_distance(&frame.top_right, candidate);
-        let bottom_left_dist = check_distance(&frame.bottom_left, candidate);
-        let bottom_right_dist = check_distance(&frame.bottom_right, candidate);
-        let center_frame_dist = check_distance(&frame.center_frame, candidate);
 
-        let candidates = [
-            (full_frame_dist, "ff"),
-            (top_left_dist, "tl"),
-            (top_right_dist, "tr"),
-            (bottom_left_dist, "bl"),
-            (bottom_right_dist, "br"),
-            (center_frame_dist, "cf"),
-        ];
-
-        let (smallest_candidate, frame_type) = candidates
-            .iter()
-            .min_by_key(|(dist, _)| dist)
-            .unwrap();
-
-        if *smallest_candidate < smallest_distance {
+        if full_frame_dist < smallest_distance {
 			nearest_match = FrameMatch {
                 tile_index: tile_index,
                 frame_index: *frame_index,
-                frame_type: String::from(*frame_type),
+                crop_resize: 100.0,
+                crop_pos_x: 0.0,
+                crop_pos_y: 0.0,
             };
-			smallest_distance = *smallest_candidate;
+			smallest_distance = full_frame_dist;
 		}
+
+        for crop in &frame.crops {
+            let crop_distance = check_distance(&crop.colors, candidate);
+
+            if crop_distance < smallest_distance {
+                nearest_match = FrameMatch {
+                    tile_index: tile_index,
+                    frame_index: *frame_index,
+                    crop_resize: crop.resize_percentage,
+                    crop_pos_x: crop.pos_x_percentage,
+                    crop_pos_y: crop.pos_y_percentage,
+                };
+                smallest_distance = crop_distance;
+            }
+        }
     }
 
     nearest_match
@@ -407,21 +400,21 @@ fn process_frame(frame_number: u64, total_frames: u64, pixels: &[u8], width: u32
             let average_green = total_green / total_grid_pixels;
             let average_blue = total_blue / total_grid_pixels;
 
-            writeln!(data, "{frame_number} ff {average_red},{average_green},{average_blue}").unwrap();
+            writeln!(data, "{frame_number} 100 0 0 {average_red},{average_green},{average_blue}").unwrap();
         }
     }
 
     // process crops
     // top left
-    process_cropped_frame(0, 0, "tl", frame_number, pixels, width, height, data);
+    process_cropped_frame(50.0, 0.0, 0.0, frame_number, pixels, width, height, data);
     // top right
-    process_cropped_frame(width / 2, 0, "tr", frame_number, pixels, width, height, data);
+    process_cropped_frame(50.0, 50.0, 0.0, frame_number, pixels, width, height, data);
     // bottom left
-    process_cropped_frame(0, height / 2, "bl", frame_number, pixels, width, height, data);
+    process_cropped_frame(50.0, 0.0, 50.0, frame_number, pixels, width, height, data);
     // bottom right
-    process_cropped_frame(width / 2, height / 2, "br", frame_number, pixels, width, height, data);
+    process_cropped_frame(50.0, 50.0, 50.0, frame_number, pixels, width, height, data);
     // center
-    process_cropped_frame(width / 4, height / 4, "cf", frame_number, pixels, width, height, data);
+    process_cropped_frame(50.0, 25.0, 25.0, frame_number, pixels, width, height, data);
 
     let percentage_complete = (frame_number as f64 / total_frames as f64) * 100.0;
     print!("\r    Processed frame: {frame_number}/{total_frames} - ({:.2}%)", percentage_complete);
@@ -431,9 +424,12 @@ fn process_frame(frame_number: u64, total_frames: u64, pixels: &[u8], width: u32
     // image.save(format!("test/{frame_number}.jpg")).unwrap();
 }
 
-fn process_cropped_frame(crop_start_x: u32, crop_start_y: u32, prefix: &str, frame_number: u64, pixels: &[u8], width: u32, height: u32, data: &mut File) {
-    let cropped_width = width / 2;
-    let cropped_height = height / 2;
+fn process_cropped_frame(resize: f64, pos_x: f64, pos_y: f64, frame_number: u64, pixels: &[u8], full_width: u32, full_height: u32, data: &mut File) {
+    let cropped_width = f64::round((full_width as f64 / 100.0) * resize) as u32;
+    let cropped_height = f64::round((full_height as f64 / 100.0) * resize) as u32;
+
+    let crop_start_x = f64::round((full_width as f64 / 100.0) * pos_x) as u32;
+    let crop_start_y = f64::round((full_height as f64 / 100.0) * pos_y) as u32;
 
     let cropped_grid_width = cropped_width / GRIDS_X;
     let cropped_grid_height = cropped_height / GRIDS_Y;
@@ -453,7 +449,7 @@ fn process_cropped_frame(crop_start_x: u32, crop_start_y: u32, prefix: &str, fra
 
             for x in start_x..end_x {
                 for y in start_y..end_y {
-                    let offset = ((y * width + x) * BYTES_PER_PIXEL) as usize;
+                    let offset = ((y * full_width + x) * BYTES_PER_PIXEL) as usize;
 
                     let red = pixels[offset] as u64;
                     total_red += red;
@@ -470,7 +466,9 @@ fn process_cropped_frame(crop_start_x: u32, crop_start_y: u32, prefix: &str, fra
             let average_green = total_green / cropped_total_grid_pixels;
             let average_blue = total_blue / cropped_total_grid_pixels;
 
-            writeln!(data, "{frame_number} {prefix} {average_red},{average_green},{average_blue}").unwrap();
+            let crop_info = format!("{resize} {pos_x} {pos_y}");
+
+            writeln!(data, "{frame_number} {crop_info} {average_red},{average_green},{average_blue}").unwrap();
         }
     }
 }
@@ -524,7 +522,7 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
 
     for line in lines.map_while(Result::ok) {
         let parts: Vec<&str> = line.split(' ').collect();
-        if parts.len() != 3 {
+        if parts.len() != 5 {
             eprintln!("Invalid data: {line}");
             break;
         }
@@ -537,22 +535,38 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
             current_frame = FrameData::new(GRIDS_X, GRIDS_Y);
         }
 
-        let frame_type = parts[1];
+        let resize_percentage: f64 = parts[1].parse()?;
+        let pos_x: f64 = parts[2].parse()?;
+        let pos_y: f64 = parts[3].parse()?;
 
-        let rgb: Vec<&str> = parts[2].split(',').collect();
+        let rgb: Vec<&str> = parts[4].split(',').collect();
 
         let r: u8 = rgb[0].parse()?;
         let g: u8 = rgb[1].parse()?;
         let b: u8 = rgb[2].parse()?;
 
-        match frame_type {
-            "ff" => current_frame.full_frame.push(Color { r, g, b }),
-            "tl" => current_frame.top_left.push(Color { r, g, b }),
-            "tr" => current_frame.top_right.push(Color { r, g, b }),
-            "bl" => current_frame.bottom_left.push(Color { r, g, b }),
-            "br" => current_frame.bottom_right.push(Color { r, g, b }),
-            "cf" => current_frame.center_frame.push(Color { r, g, b }),
-            _ => return Err(format!("Unknown frame type: {frame_type}").into()),
+        if resize_percentage == 100.0 {
+            current_frame.full_frame.push(Color { r, g, b });
+        }
+        else {
+            let crop = current_frame.crops.iter_mut()
+                .find(|crop| {
+                    crop.resize_percentage == resize_percentage &&
+                    crop.pos_x_percentage == pos_x &&
+                    crop.pos_y_percentage == pos_y
+                });
+
+            if let Some(crop) = crop {
+                crop.colors.push(Color { r, g, b });
+            }
+            else {
+                current_frame.crops.push(FrameCrop {
+                    resize_percentage: resize_percentage,
+                    pos_x_percentage: pos_x,
+                    pos_y_percentage: pos_y,
+                    colors: vec![Color { r, g, b }],
+                });
+            }
         }
     }
 
