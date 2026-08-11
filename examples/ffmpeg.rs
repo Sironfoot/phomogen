@@ -50,6 +50,80 @@ impl FrameData {
     }
 }
 
+struct CropSettings {
+    resize_percentage: f64,
+    pos_x_percentage: f64,
+    pos_y_percentage: f64,
+
+    crop_start_x: u32,
+    crop_start_y: u32,
+
+    cropped_grid_width: u32,
+    cropped_grid_height: u32,
+    cropped_total_grid_pixels: u64,
+}
+
+impl CropSettings {
+    fn new(resize: f64, pos_x: f64, pos_y: f64, full_width: u32, full_height: u32, grids_x: u32, grids_y: u32) -> CropSettings {
+        let cropped_width = f64::round((full_width as f64 / 100.0) * resize) as u32;
+        let cropped_height = f64::round((full_height as f64 / 100.0) * resize) as u32;
+
+        let crop_start_x = f64::round((full_width as f64 / 100.0) * pos_x) as u32;
+        let crop_start_y = f64::round((full_height as f64 / 100.0) * pos_y) as u32;
+
+        let cropped_grid_width = f64::round(cropped_width as f64 / grids_x as f64) as u32;
+        let cropped_grid_height = f64::round(cropped_height as f64 / grids_y as f64) as u32;
+        let cropped_total_grid_pixels = (cropped_grid_width * cropped_grid_height) as u64;
+
+        CropSettings {
+            resize_percentage: resize,
+            pos_x_percentage: pos_x,
+            pos_y_percentage: pos_y,
+
+            crop_start_x: crop_start_x,
+            crop_start_y: crop_start_y,
+
+            cropped_grid_width: cropped_grid_width,
+            cropped_grid_height: cropped_grid_height,
+            cropped_total_grid_pixels: cropped_total_grid_pixels,
+        }
+    }
+
+    fn all_crops(full_width: u32, full_height: u32, grids_x: u32, grids_y: u32) -> Vec<CropSettings> {
+        let frame_crops: Vec<CropSettings> = vec![
+            // 50% crops
+            CropSettings::new(50.0, 0.0, 0.0, full_width, full_height, grids_x, grids_y),   // top left
+            CropSettings::new(50.0, 25.0, 0.0, full_width, full_height, grids_x, grids_y),  // top
+            CropSettings::new(50.0, 50.0, 0.0, full_width, full_height, grids_x, grids_y),  // top right
+            CropSettings::new(50.0, 0.0, 25.0, full_width, full_height, grids_x, grids_y),  // left
+            CropSettings::new(50.0, 25.0, 25.0, full_width, full_height, grids_x, grids_y), // center
+            CropSettings::new(50.0, 50.0, 25.0, full_width, full_height, grids_x, grids_y), // right
+            CropSettings::new(50.0, 0.0, 50.0, full_width, full_height, grids_x, grids_y),  // bottom left
+            CropSettings::new(50.0, 25.0, 50.0, full_width, full_height, grids_x, grids_y), // bottom
+            CropSettings::new(50.0, 50.0, 50.0, full_width, full_height, grids_x, grids_y), // bottom right
+
+            // 50% inner crops
+            CropSettings::new(50.0, 12.5, 12.5, full_width, full_height, grids_x, grids_y), // inner top left
+            CropSettings::new(50.0, 37.5, 12.5, full_width, full_height, grids_x, grids_y), // inner top right
+            CropSettings::new(50.0, 12.5, 37.5, full_width, full_height, grids_x, grids_y), // inner bottom left
+            CropSettings::new(50.0, 37.5, 37.5, full_width, full_height, grids_x, grids_y), // inner bottom right
+
+            // 66.666% crops
+            CropSettings::new(66.666, 0.0, 0.0, full_width, full_height, grids_x, grids_y),       // top left
+            CropSettings::new(66.666, 16.666, 0.0, full_width, full_height, grids_x, grids_y),    // top
+            CropSettings::new(66.666, 33.333, 0.0, full_width, full_height, grids_x, grids_y),    // top right
+            CropSettings::new(66.666, 0.0, 16.666, full_width, full_height, grids_x, grids_y),    // left
+            CropSettings::new(66.666, 16.666, 16.666, full_width, full_height, grids_x, grids_y), // center
+            CropSettings::new(66.666, 33.333, 16.666, full_width, full_height, grids_x, grids_y), // right
+            CropSettings::new(66.666, 0.0, 33.333, full_width, full_height, grids_x, grids_y),    // bottom left
+            CropSettings::new(66.666, 16.666, 33.333, full_width, full_height, grids_x, grids_y), // bottom
+            CropSettings::new(66.666, 33.333, 33.333, full_width, full_height, grids_x, grids_y), // bottom right
+        ];
+
+        frame_crops
+    }
+}
+
 #[derive(Debug)]
 struct ImageData {
     tiles: Vec<ImageTile>,
@@ -303,6 +377,8 @@ fn check_distance(frame_colors: &[Color], candidate: &ImageTile) -> u64 {
 fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaData) -> Result<(), Box<dyn Error>> {
     //let filter = "select='eq(n,0)+eq(n,2)+eq(n,36)+eq(n,206)+eq(n,2060)+eq(n,2069)+eq(n,12345)'";
 
+    let frame_crops = CropSettings::all_crops(RESIZE_WIDTH, RESIZE_HEIGHT, GRIDS_X, GRIDS_Y);
+
     let mut child = Command::new("ffmpeg")
         .args([
             //"-hwaccel", "videotoolbox", // THIS MAKES IT RUN SLOWER
@@ -346,7 +422,7 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
     loop {
         match stdout.read_exact(&mut buffer) {
             Ok(()) => {
-                process_frame(frame_number, &buffer, RESIZE_WIDTH, RESIZE_HEIGHT, &mut data);
+                process_frame(frame_number, &frame_crops, &buffer, RESIZE_WIDTH, RESIZE_HEIGHT, &mut data);
                 frame_number += 1;
 
                 if frame_number % output_frame_interval == 0 {
@@ -386,7 +462,7 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
     Ok(())
 }
 
-fn process_frame(frame_number: u64, pixels: &[u8], width: u32, height: u32, data: &mut File) {
+fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8], width: u32, height: u32, data: &mut File) {
     let grid_width = width / GRIDS_X;
     let grid_height = height / GRIDS_Y;
 
@@ -419,117 +495,64 @@ fn process_frame(frame_number: u64, pixels: &[u8], width: u32, height: u32, data
                 }
             }
 
-            let average_red = total_red / total_grid_pixels;
-            let average_green = total_green / total_grid_pixels;
-            let average_blue = total_blue / total_grid_pixels;
+            let average_red = f64::round(total_red as f64 / total_grid_pixels as f64) as u64;
+            let average_green = f64::round(total_green as f64 / total_grid_pixels as f64) as u64;
+            let average_blue = f64::round(total_blue as f64 / total_grid_pixels as f64) as u64;
 
             writeln!(data, "{frame_number} 100 0 0 {average_red},{average_green},{average_blue}").unwrap();
         }
     }
 
-    // process 50% crops
-    let resize_percentage = 50.0;
-    // top left
-    process_cropped_frame(resize_percentage, 0.0, 0.0, frame_number, pixels, width, height, data);
-    // top
-    process_cropped_frame(resize_percentage, 25.0, 0.0, frame_number, pixels, width, height, data);
-    // top right
-    process_cropped_frame(resize_percentage, 50.0, 0.0, frame_number, pixels, width, height, data);
-    // left
-    process_cropped_frame(resize_percentage, 0.0, 25.0, frame_number, pixels, width, height, data);
-    // center
-    process_cropped_frame(resize_percentage, 25.0, 25.0, frame_number, pixels, width, height, data);
-    // right
-    process_cropped_frame(resize_percentage, 50.0, 25.0, frame_number, pixels, width, height, data);
-    // bottom left
-    process_cropped_frame(resize_percentage, 0.0, 50.0, frame_number, pixels, width, height, data);
-    // bottom
-    process_cropped_frame(resize_percentage, 25.0, 50.0, frame_number, pixels, width, height, data);
-    // bottom right
-    process_cropped_frame(resize_percentage, 50.0, 50.0, frame_number, pixels, width, height, data);
+    for crop in frame_crops.iter() {
+        let crop_start_x = crop.crop_start_x;
+        let crop_start_y = crop.crop_start_y;
 
-    // inner top left
-    process_cropped_frame(resize_percentage, 12.5, 12.5, frame_number, pixels, width, height, data);
-    // inner top right
-    process_cropped_frame(resize_percentage, 37.5, 12.5, frame_number, pixels, width, height, data);
-    // inner bottom left
-    process_cropped_frame(resize_percentage, 12.5, 37.5, frame_number, pixels, width, height, data);
-    // inner bottom right
-    process_cropped_frame(resize_percentage, 37.5, 37.5, frame_number, pixels, width, height, data);
-    
+        let cropped_grid_width = crop.cropped_grid_width;
+        let cropped_grid_height = crop.cropped_grid_height;
+        let cropped_total_grid_pixels = crop.cropped_total_grid_pixels;
 
-    // process 66.666% crops
-    let resize_percentage = 66.666;
-    // top left
-    process_cropped_frame(resize_percentage, 0.0, 0.0, frame_number, pixels, width, height, data);
-    // top
-    process_cropped_frame(resize_percentage, 16.666, 0.0, frame_number, pixels, width, height, data);
-    // top right
-    process_cropped_frame(resize_percentage, 33.333, 0.0, frame_number, pixels, width, height, data);
-    // left
-    process_cropped_frame(resize_percentage, 0.0, 16.666, frame_number, pixels, width, height, data);
-    // center
-    process_cropped_frame(resize_percentage, 16.666, 16.666, frame_number, pixels, width, height, data);
-    // right
-    process_cropped_frame(resize_percentage, 33.333, 16.666, frame_number, pixels, width, height, data);
-    // bottom left
-    process_cropped_frame(resize_percentage, 0.0, 33.333, frame_number, pixels, width, height, data);
-    // bottom
-    process_cropped_frame(resize_percentage, 16.666, 33.333, frame_number, pixels, width, height, data);
-    // bottom right
-    process_cropped_frame(resize_percentage, 33.333, 33.333, frame_number, pixels, width, height, data);
+        let resize = crop.resize_percentage;
+        let pos_x = crop.pos_x_percentage;
+        let pos_y = crop.pos_y_percentage;
+
+        for grid_y in 0..GRIDS_Y {
+            for grid_x in 0..GRIDS_X {
+                let start_x = crop_start_x + (cropped_grid_width * grid_x);
+                let end_x = start_x + cropped_grid_width;
+
+                let start_y = crop_start_y + (cropped_grid_height * grid_y);
+                let end_y = start_y + cropped_grid_height;
+
+                let mut total_red: u64 = 0;
+                let mut total_green: u64 = 0;
+                let mut total_blue: u64 = 0;
+
+                for x in start_x..end_x {
+                    for y in start_y..end_y {
+                        let offset = ((y * width + x) * BYTES_PER_PIXEL) as usize;
+
+                        let red = pixels[offset];
+                        total_red += red as u64;
+
+                        let green = pixels[offset + 1];
+                        total_green += green as u64;
+
+                        let blue = pixels[offset + 2];
+                        total_blue += blue as u64;
+                    }
+                }
+
+                let average_red = f64::round(total_red as f64 / cropped_total_grid_pixels as f64) as u64;
+                let average_green = f64::round(total_green as f64 / cropped_total_grid_pixels as f64) as u64;
+                let average_blue = f64::round(total_blue as f64 / cropped_total_grid_pixels as f64) as u64;
+                
+                writeln!(data, "{frame_number} {resize} {pos_x} {pos_y} {average_red},{average_green},{average_blue}").unwrap();
+            }
+        }
+    }
 
     // let image = mage::RgbImage::from_raw(width as u32, height as u32, pixels.to_vec()).unwrap();
     // image.save(format!("test/{frame_number}.jpg")).unwrap();
-}
-
-fn process_cropped_frame(resize: f64, pos_x: f64, pos_y: f64, frame_number: u64, pixels: &[u8], full_width: u32, full_height: u32, data: &mut File) {
-    let cropped_width = f64::round((full_width as f64 / 100.0) * resize) as u32;
-    let cropped_height = f64::round((full_height as f64 / 100.0) * resize) as u32;
-
-    let crop_start_x = f64::round((full_width as f64 / 100.0) * pos_x) as u32;
-    let crop_start_y = f64::round((full_height as f64 / 100.0) * pos_y) as u32;
-
-    let cropped_grid_width = f64::round(cropped_width as f64 / GRIDS_X as f64) as u32;
-    let cropped_grid_height = f64::round(cropped_height as f64 / GRIDS_Y as f64) as u32;
-    let cropped_total_grid_pixels = (cropped_grid_width * cropped_grid_height) as u64;
-
-    for grid_y in 0..GRIDS_Y {
-        for grid_x in 0..GRIDS_X {
-            let start_x = crop_start_x + (cropped_grid_width * grid_x);
-            let end_x = start_x + cropped_grid_width;
-
-            let start_y = crop_start_y + (cropped_grid_height * grid_y);
-            let end_y = start_y + cropped_grid_height;
-
-            let mut total_red: u64 = 0;
-            let mut total_green: u64 = 0;
-            let mut total_blue: u64 = 0;
-
-            for x in start_x..end_x {
-                for y in start_y..end_y {
-                    let offset = ((y * full_width + x) * BYTES_PER_PIXEL) as usize;
-
-                    let red = pixels[offset] as u64;
-                    total_red += red;
-
-                    let green = pixels[offset + 1] as u64;
-                    total_green += green;
-
-                    let blue = pixels[offset + 2] as u64;
-                    total_blue += blue;
-                }
-            }
-
-            let average_red = total_red / cropped_total_grid_pixels;
-            let average_green = total_green / cropped_total_grid_pixels;
-            let average_blue = total_blue / cropped_total_grid_pixels;
-
-            let crop_info = format!("{resize} {pos_x} {pos_y}");
-
-            writeln!(data, "{frame_number} {crop_info} {average_red},{average_green},{average_blue}").unwrap();
-        }
-    }
 }
 
 fn extract_video_meta_data(video_path: &str) -> Result<VideoMetaData, Box<dyn Error>> {
@@ -666,24 +689,24 @@ fn calculate_image_colors(image_path: &str) -> Result<ImageData, Box<dyn Error>>
                     let start_y = sub_tile_y * sub_tile_height;
                     let end_y = start_y + sub_tile_height;
 
-                    let mut total_red: u32 = 0;
-                    let mut total_green: u32 = 0;
-                    let mut total_blue: u32 = 0;
+                    let mut total_red: u64 = 0;
+                    let mut total_green: u64 = 0;
+                    let mut total_blue: u64 = 0;
 
                     for pixel_y in start_y..end_y {
                         for pixel_x in start_x..end_x {
                             let pixel = sub_image.get_pixel(pixel_x, pixel_y);
                             let [red, green, blue] = pixel.0;
 
-                            total_red += red as u32;
-                            total_green += green as u32;
-                            total_blue += blue as u32;
+                            total_red += red as u64;
+                            total_green += green as u64;
+                            total_blue += blue as u64;
                         }
                     }
 
-                    let average_red = total_red / total_sub_tile_pixels;
-                    let average_green = total_green / total_sub_tile_pixels;
-                    let average_blue = total_blue / total_sub_tile_pixels;
+                    let average_red = f64::round(total_red as f64 / total_sub_tile_pixels as f64) as u64;
+                    let average_green = f64::round(total_green as f64 / total_sub_tile_pixels as f64) as u64;
+                    let average_blue = f64::round(total_blue as f64 / total_sub_tile_pixels as f64) as u64;
 
                     tile_data.colors.push(Color {
                         r: average_red as u8,
