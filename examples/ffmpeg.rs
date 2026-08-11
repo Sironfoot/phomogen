@@ -404,17 +404,49 @@ fn process_frame(frame_number: u64, total_frames: u64, pixels: &[u8], width: u32
         }
     }
 
-    // process crops
+    // process 50% crops
+    let resize_percentage = 50.0;
     // top left
-    process_cropped_frame(50.0, 0.0, 0.0, frame_number, pixels, width, height, data);
+    process_cropped_frame(resize_percentage, 0.0, 0.0, frame_number, pixels, width, height, data);
+    // top
+    process_cropped_frame(resize_percentage, 25.0, 0.0, frame_number, pixels, width, height, data);
     // top right
-    process_cropped_frame(50.0, 50.0, 0.0, frame_number, pixels, width, height, data);
-    // bottom left
-    process_cropped_frame(50.0, 0.0, 50.0, frame_number, pixels, width, height, data);
-    // bottom right
-    process_cropped_frame(50.0, 50.0, 50.0, frame_number, pixels, width, height, data);
+    process_cropped_frame(resize_percentage, 50.0, 0.0, frame_number, pixels, width, height, data);
+    // left
+    process_cropped_frame(resize_percentage, 0.0, 25.0, frame_number, pixels, width, height, data);
     // center
-    process_cropped_frame(50.0, 25.0, 25.0, frame_number, pixels, width, height, data);
+    process_cropped_frame(resize_percentage, 25.0, 25.0, frame_number, pixels, width, height, data);
+    // right
+    process_cropped_frame(resize_percentage, 50.0, 25.0, frame_number, pixels, width, height, data);
+    // bottom left
+    process_cropped_frame(resize_percentage, 0.0, 50.0, frame_number, pixels, width, height, data);
+    // bottom
+    process_cropped_frame(resize_percentage, 25.0, 50.0, frame_number, pixels, width, height, data);
+    // bottom right
+    process_cropped_frame(resize_percentage, 50.0, 50.0, frame_number, pixels, width, height, data);
+    
+
+    // process 66.666% crops
+    let resize_percentage = 66.666;
+    // top left
+    process_cropped_frame(resize_percentage, 0.0, 0.0, frame_number, pixels, width, height, data);
+    // top
+    process_cropped_frame(resize_percentage, 16.666, 0.0, frame_number, pixels, width, height, data);
+    // top right
+    process_cropped_frame(resize_percentage, 33.333, 0.0, frame_number, pixels, width, height, data);
+    // left
+    process_cropped_frame(resize_percentage, 0.0, 16.666, frame_number, pixels, width, height, data);
+    // center
+    process_cropped_frame(resize_percentage, 16.666, 16.666, frame_number, pixels, width, height, data);
+    // right
+    process_cropped_frame(resize_percentage, 33.333, 16.666, frame_number, pixels, width, height, data);
+    // bottom left
+    process_cropped_frame(resize_percentage, 0.0, 33.333, frame_number, pixels, width, height, data);
+    // bottom
+    process_cropped_frame(resize_percentage, 16.666, 33.333, frame_number, pixels, width, height, data);
+    // bottom right
+    process_cropped_frame(resize_percentage, 33.333, 33.333, frame_number, pixels, width, height, data);
+    
 
     let percentage_complete = (frame_number as f64 / total_frames as f64) * 100.0;
     print!("\r    Processed frame: {frame_number}/{total_frames} - ({:.2}%)", percentage_complete);
