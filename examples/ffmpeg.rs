@@ -3,9 +3,12 @@ use std::fs::{File, exists};
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
 use std::io::{self, BufRead, Read, Write};
+use std::time::Instant;
 
 use image::{GenericImage, GenericImageView, ImageBuffer, Rgb, RgbImage, imageops};
 use image::imageops::FilterType;
+
+use num_format::{Locale, ToFormattedString};
 
 struct VideoMetaData {
     width: u32,
@@ -96,7 +99,7 @@ fn main() {
     println!("Loading Database...");
     let data = load_database(data_file)
         .expect("Failed to load database");
-    println!("    Loaded Data. {} frames processed!", data.len());
+    println!("    Loaded Data. {} frames processed!", data.len().to_formatted_string(&Locale::en));
 
 
     println!("Calculating image colors...");
@@ -132,9 +135,6 @@ fn main() {
 }
 
 fn generate_mosaic(video_path: &str, selected_frames: &[FrameMatch], meta_data: &VideoMetaData) -> Result<(), Box<dyn Error>> {
-    // let selected_frames = selected_frames
-    //     .sort_by_key(|frame_match| frame_match.frame_index);
-    
     let mut child = Command::new("ffmpeg")
         .args([
             //"-hwaccel", "videotoolbox", // THIS MAKES IT RUN SLOWER
@@ -177,7 +177,10 @@ fn generate_mosaic(video_path: &str, selected_frames: &[FrameMatch], meta_data: 
         match stdout.read_exact(&mut buffer) {
             Ok(()) => {
                 let percentage_complete = (frame_index as f64 / total_frames as f64) * 100.0;
-                print!("\r    Frame: {frame_index}/{total_frames} - ({:.2}%)", percentage_complete);
+                print!("\r    Frame: {}/{} - ({:.2}%)",
+                    frame_index.to_formatted_string(&Locale::en),
+                    total_frames.to_formatted_string(&Locale::en),
+                    percentage_complete);
                 std::io::stdout().flush().unwrap();
 
                 let matches = selected_frames.iter()
@@ -225,7 +228,7 @@ fn generate_mosaic(video_path: &str, selected_frames: &[FrameMatch], meta_data: 
         panic!("ffmpeg failed!");
     }
 
-    canvas.save("test-output.png").unwrap();
+    canvas.save("images/test-output.png").unwrap();
 
     Ok(())
 }
@@ -333,14 +336,34 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
     let mut buffer = vec![0u8; frame_size as usize];
 
     let mut frame_number: u64 = 0;
+    let total_frames = meta_data.total_frames;
 
     let mut data = File::create(data_file).unwrap();
+
+    let mut timer = Instant::now();
+    let output_frame_interval = 123;
 
     loop {
         match stdout.read_exact(&mut buffer) {
             Ok(()) => {
-                process_frame(frame_number, meta_data.total_frames, &buffer, RESIZE_WIDTH, RESIZE_HEIGHT, &mut data);
+                process_frame(frame_number, &buffer, RESIZE_WIDTH, RESIZE_HEIGHT, &mut data);
                 frame_number += 1;
+
+                if frame_number % output_frame_interval == 0 {
+                    let percentage_complete = (frame_number as f64 / total_frames as f64) * 100.0;
+
+                    let elapsed = timer.elapsed().as_secs_f64();
+                    let frames_per_second = output_frame_interval as f64 / elapsed;
+
+                    timer = Instant::now();
+
+                    print!("\r    Processed frame: {}/{} - ({:.2}%) - {:.2}fps",
+                        frame_number.to_formatted_string(&Locale::en),
+                        total_frames.to_formatted_string(&Locale::en),
+                        percentage_complete,
+                        frames_per_second);
+                    std::io::stdout().flush().unwrap();
+                }
             }
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
                 break;
@@ -363,7 +386,7 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
     Ok(())
 }
 
-fn process_frame(frame_number: u64, total_frames: u64, pixels: &[u8], width: u32, height: u32, data: &mut File) {
+fn process_frame(frame_number: u64, pixels: &[u8], width: u32, height: u32, data: &mut File) {
     let grid_width = width / GRIDS_X;
     let grid_height = height / GRIDS_Y;
 
@@ -424,6 +447,15 @@ fn process_frame(frame_number: u64, total_frames: u64, pixels: &[u8], width: u32
     process_cropped_frame(resize_percentage, 25.0, 50.0, frame_number, pixels, width, height, data);
     // bottom right
     process_cropped_frame(resize_percentage, 50.0, 50.0, frame_number, pixels, width, height, data);
+
+    // inner top left
+    process_cropped_frame(resize_percentage, 12.5, 12.5, frame_number, pixels, width, height, data);
+    // inner top right
+    process_cropped_frame(resize_percentage, 37.5, 12.5, frame_number, pixels, width, height, data);
+    // inner bottom left
+    process_cropped_frame(resize_percentage, 12.5, 37.5, frame_number, pixels, width, height, data);
+    // inner bottom right
+    process_cropped_frame(resize_percentage, 37.5, 37.5, frame_number, pixels, width, height, data);
     
 
     // process 66.666% crops
@@ -446,11 +478,6 @@ fn process_frame(frame_number: u64, total_frames: u64, pixels: &[u8], width: u32
     process_cropped_frame(resize_percentage, 16.666, 33.333, frame_number, pixels, width, height, data);
     // bottom right
     process_cropped_frame(resize_percentage, 33.333, 33.333, frame_number, pixels, width, height, data);
-    
-
-    let percentage_complete = (frame_number as f64 / total_frames as f64) * 100.0;
-    print!("\r    Processed frame: {frame_number}/{total_frames} - ({:.2}%)", percentage_complete);
-    std::io::stdout().flush().unwrap();
 
     // let image = mage::RgbImage::from_raw(width as u32, height as u32, pixels.to_vec()).unwrap();
     // image.save(format!("test/{frame_number}.jpg")).unwrap();
@@ -463,8 +490,8 @@ fn process_cropped_frame(resize: f64, pos_x: f64, pos_y: f64, frame_number: u64,
     let crop_start_x = f64::round((full_width as f64 / 100.0) * pos_x) as u32;
     let crop_start_y = f64::round((full_height as f64 / 100.0) * pos_y) as u32;
 
-    let cropped_grid_width = cropped_width / GRIDS_X;
-    let cropped_grid_height = cropped_height / GRIDS_Y;
+    let cropped_grid_width = f64::round(cropped_width as f64 / GRIDS_X as f64) as u32;
+    let cropped_grid_height = f64::round(cropped_height as f64 / GRIDS_Y as f64) as u32;
     let cropped_total_grid_pixels = (cropped_grid_width * cropped_grid_height) as u64;
 
     for grid_y in 0..GRIDS_Y {
