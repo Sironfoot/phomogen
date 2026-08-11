@@ -1,6 +1,5 @@
 /target
 .DS_Store
 
-/sample.mp4
-/test-image.jpeg
-/data.txt
+/images
+/videos

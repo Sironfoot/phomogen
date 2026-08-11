@@ -77,15 +77,15 @@ const RESIZE_HEIGHT: u32 = 540;
 const BYTES_PER_PIXEL: u32 = 3;
 
 fn main() {
-    let video_path = "sample.mp4";
-    let image_path = "test-image.jpeg";
+    let video_path = "videos/sample.mp4";
+    let image_path = "images/test-image.jpeg";
 
     let meta_data = extract_video_meta_data(video_path)
         .expect("Error extracting video meta data");
 
     println!("Video: {}x{} at {}fps", meta_data.width, meta_data.height, meta_data.frame_rate);
 
-    let data_file = &format!("{video_path}.dat");
+    let data_file = &format!("{video_path}.pmg");
 
     if !exists(data_file).unwrap() {
         println!("Building database...");
