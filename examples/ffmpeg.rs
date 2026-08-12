@@ -1,3 +1,4 @@
+use std::cmp;
 use std::error::Error;
 use std::fs::{File, exists};
 use std::collections::HashMap;
@@ -144,8 +145,8 @@ struct FrameMatch {
     crop_pos_y: f64,
 }
 
-const GRIDS_X: u32 = 3;
-const GRIDS_Y: u32 = 3;
+const GRIDS_X: u32 = 4;
+const GRIDS_Y: u32 = 4;
 
 const MOSAIC_TILES: u32 = 40;
 
@@ -518,10 +519,10 @@ fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8],
         for grid_y in 0..GRIDS_Y {
             for grid_x in 0..GRIDS_X {
                 let start_x = crop_start_x + (cropped_grid_width * grid_x);
-                let end_x = start_x + cropped_grid_width;
+                let end_x = cmp::min(start_x + cropped_grid_width, width);
 
                 let start_y = crop_start_y + (cropped_grid_height * grid_y);
-                let end_y = start_y + cropped_grid_height;
+                let end_y = cmp::min(start_y + cropped_grid_height, height);
 
                 let mut total_red: u64 = 0;
                 let mut total_green: u64 = 0;
@@ -657,16 +658,20 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
 
 fn calculate_image_colors(image_path: &str) -> Result<ImageData, Box<dyn Error>> {
     let image_file = image::open(image_path)?;
-    let image = image_file.to_rgb8();
-    let (width, height) = image.dimensions();
+    let original_image = image_file.to_rgb8();
+
+    // resize to 8K image to reduce chance of fractional units with large number of tiles/sub-titles
+    let width: u32 = 7680;
+    let height: u32 = 4320;
+    let image_8k = imageops::resize(&original_image, 7680, 4320, FilterType::Triangle);
 
     let mut image_data = ImageData { tiles: vec![] };
     
-    let tile_width = width / MOSAIC_TILES;
-    let tile_height = height / MOSAIC_TILES;
+    let tile_width = f64::round(width as f64 / MOSAIC_TILES as f64) as u32;
+    let tile_height = f64::round(height as f64 / MOSAIC_TILES as f64) as u32;
 
-    let sub_tile_width = tile_width / GRIDS_X;
-    let sub_tile_height = tile_height / GRIDS_Y;
+    let sub_tile_width = f64::round(tile_width as f64 / GRIDS_X as f64) as u32;
+    let sub_tile_height = f64::round(tile_height as f64 / GRIDS_Y as f64) as u32;
 
     let total_sub_tile_pixels = sub_tile_width * sub_tile_height;
 
@@ -675,7 +680,7 @@ fn calculate_image_colors(image_path: &str) -> Result<ImageData, Box<dyn Error>>
             let start_x = tile_x * tile_width;
             let start_y = tile_y * tile_height;
 
-            let sub_image = image.view(start_x, start_y, tile_width, tile_height);
+            let sub_image = image_8k.view(start_x, start_y, tile_width, tile_height);
 
             let mut tile_data = ImageTile {
                 colors: vec![]
@@ -684,10 +689,10 @@ fn calculate_image_colors(image_path: &str) -> Result<ImageData, Box<dyn Error>>
             for sub_tile_y in 0..GRIDS_Y {
                 for sub_tile_x in 0..GRIDS_X {
                     let start_x = sub_tile_x * sub_tile_width;
-                    let end_x = start_x + sub_tile_width;
+                    let end_x = cmp::min(start_x + sub_tile_width, tile_width);
 
                     let start_y = sub_tile_y * sub_tile_height;
-                    let end_y = start_y + sub_tile_height;
+                    let end_y = cmp::min(start_y + sub_tile_height, tile_height);
 
                     let mut total_red: u64 = 0;
                     let mut total_green: u64 = 0;
