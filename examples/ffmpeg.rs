@@ -7,7 +7,7 @@ use std::io::{self, BufRead, Read, Write};
 use std::time::Instant;
 
 use image::{GenericImage, GenericImageView, ImageBuffer, Rgb, RgbImage, imageops};
-use image::imageops::FilterType;
+use image::imageops::{FilterType};
 
 use num_format::{Locale, ToFormattedString};
 
@@ -31,15 +31,6 @@ struct FrameData {
     crops: Vec<FrameCrop>,
 }
 
-#[derive(Debug)]
-struct FrameCrop {
-    resize_percentage: f64,
-    pos_x_percentage: f64,
-    pos_y_percentage: f64,
-
-    colors: Vec<Color>,
-}
-
 impl FrameData {
     fn new(grid_x: u32, grid_y: u32) -> FrameData {
         let grid_tiles = (grid_x * grid_y) as usize;
@@ -49,6 +40,53 @@ impl FrameData {
             crops: vec![],
         }
     }
+
+    fn flip(&self) -> FrameData {
+        let mut flipped_frame = FrameData {
+            full_frame: Vec::with_capacity(self.full_frame.len()),
+            crops: Vec::with_capacity(self.crops.len()),
+        };
+        
+        for grid_y in 0..GRIDS_Y {
+            for grid_x in (0..GRIDS_X).rev() {
+                let offset = (grid_y * GRIDS_X + grid_x) as usize;
+                let color = &self.full_frame[offset];
+
+                flipped_frame.full_frame.push(Color { r: color.r, g: color.g, b: color.b });
+            }
+        }
+
+        for crop in &self.crops {
+            let mut flipped_crop = FrameCrop {
+                resize_percentage: crop.resize_percentage,
+                pos_x_percentage: crop.pos_x_percentage,
+                pos_y_percentage: crop.pos_y_percentage,
+                colors: Vec::with_capacity(crop.colors.len()),
+            };
+
+            for grid_y in 0..GRIDS_Y {
+                for grid_x in (0..GRIDS_X).rev() {
+                    let offset = (grid_y * GRIDS_X + grid_x) as usize;
+                    let color = &crop.colors[offset];
+
+                    flipped_crop.colors.push(Color { r: color.r, g: color.g, b: color.b });
+                }
+            }
+
+            flipped_frame.crops.push(flipped_crop);
+        }
+
+        return flipped_frame;
+    }
+}
+
+#[derive(Debug)]
+struct FrameCrop {
+    resize_percentage: f64,
+    pos_x_percentage: f64,
+    pos_y_percentage: f64,
+
+    colors: Vec<Color>,
 }
 
 struct CropSettings {
@@ -143,12 +181,13 @@ struct FrameMatch {
     crop_resize: f64,
     crop_pos_x: f64,
     crop_pos_y: f64,
+    is_flipped: bool,
 }
 
 const GRIDS_X: u32 = 4;
 const GRIDS_Y: u32 = 4;
 
-const MOSAIC_TILES: u32 = 40;
+const MOSAIC_TILES: u32 = 60;
 
 const RESIZE_WIDTH: u32 = 960;
 const RESIZE_HEIGHT: u32 = 540;
@@ -275,6 +314,10 @@ fn generate_mosaic(video_path: &str, selected_frames: &[FrameMatch], meta_data: 
                         image = imageops::crop(&mut image, pos_x, pos_y, cropped_width, cropped_height).to_image();
                     }
 
+                    if matched.is_flipped {
+                        imageops::flip_horizontal_in_place(&mut image);
+                    }
+
                     let resized = imageops::resize(&image, cell_width, cell_height, FilterType::Triangle);
     
                     let row = matched.tile_index as u32 / MOSAIC_TILES;
@@ -319,6 +362,7 @@ fn find_nearest_color(database: &HashMap<u64, FrameData>, candidate: &ImageTile,
         crop_resize: 100.0,
         crop_pos_x: 0.0,
         crop_pos_y: 0.0,
+        is_flipped: false,
     };
     let mut smallest_distance = std::u64::MAX;
 
@@ -332,6 +376,7 @@ fn find_nearest_color(database: &HashMap<u64, FrameData>, candidate: &ImageTile,
                 crop_resize: 100.0,
                 crop_pos_x: 0.0,
                 crop_pos_y: 0.0,
+                is_flipped: false,
             };
 			smallest_distance = full_frame_dist;
 		}
@@ -346,10 +391,44 @@ fn find_nearest_color(database: &HashMap<u64, FrameData>, candidate: &ImageTile,
                     crop_resize: crop.resize_percentage,
                     crop_pos_x: crop.pos_x_percentage,
                     crop_pos_y: crop.pos_y_percentage,
+                    is_flipped: false,
                 };
                 smallest_distance = crop_distance;
             }
         }
+
+        // check flipped frames
+        let flipped = frame.flip();
+        let full_frame_dist = check_distance(&flipped.full_frame, candidate);
+
+        if full_frame_dist < smallest_distance {
+			nearest_match = FrameMatch {
+                tile_index: tile_index,
+                frame_index: *frame_index,
+                crop_resize: 100.0,
+                crop_pos_x: 0.0,
+                crop_pos_y: 0.0,
+                is_flipped: true,
+            };
+			smallest_distance = full_frame_dist;
+		}
+
+        for crop in &flipped.crops {
+            let crop_distance = check_distance(&crop.colors, candidate);
+
+            if crop_distance < smallest_distance {
+                nearest_match = FrameMatch {
+                    tile_index: tile_index,
+                    frame_index: *frame_index,
+                    crop_resize: crop.resize_percentage,
+                    crop_pos_x: crop.pos_x_percentage,
+                    crop_pos_y: crop.pos_y_percentage,
+                    is_flipped: true,
+                };
+                smallest_distance = crop_distance;
+            }
+        }
+
     }
 
     nearest_match
@@ -600,7 +679,7 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
 
     let mut data: HashMap<u64, FrameData> = HashMap::new();
 
-    let mut current_iframe_ndex: u64 = 0;
+    let mut current_iframe_index: u64 = 0;
     let mut current_frame = FrameData::new(GRIDS_X, GRIDS_Y);
 
     for line in lines.map_while(Result::ok) {
@@ -611,10 +690,10 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
         }
 
         let index: u64 = parts[0].parse()?;
-        if index > current_iframe_ndex {
-            data.insert(current_iframe_ndex, current_frame);
+        if index > current_iframe_index {
+            data.insert(current_iframe_index, current_frame);
 
-            current_iframe_ndex = index;
+            current_iframe_index = index;
             current_frame = FrameData::new(GRIDS_X, GRIDS_Y);
         }
 
