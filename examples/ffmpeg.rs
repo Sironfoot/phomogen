@@ -187,7 +187,7 @@ struct FrameMatch {
 const GRIDS_X: u32 = 4;
 const GRIDS_Y: u32 = 4;
 
-const MOSAIC_TILES: u32 = 60;
+const MOSAIC_TILES: u32 = 40;
 
 const RESIZE_WIDTH: u32 = 960;
 const RESIZE_HEIGHT: u32 = 540;
@@ -548,6 +548,8 @@ fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8],
 
     let total_grid_pixels: u64 = (grid_width * grid_height) as u64;
 
+    write!(data, "{frame_number} 100 0 0").unwrap();
+
     for grid_y in 0..GRIDS_Y {
         for grid_x in 0..GRIDS_X {
             let start_x = grid_width * grid_x;
@@ -579,9 +581,11 @@ fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8],
             let average_green = f64::round(total_green as f64 / total_grid_pixels as f64) as u64;
             let average_blue = f64::round(total_blue as f64 / total_grid_pixels as f64) as u64;
 
-            writeln!(data, "{frame_number} 100 0 0 {average_red},{average_green},{average_blue}").unwrap();
+            write!(data, " {average_red},{average_green},{average_blue}").unwrap();
         }
     }
+
+    writeln!(data).unwrap();
 
     for crop in frame_crops.iter() {
         let crop_start_x = crop.crop_start_x;
@@ -594,6 +598,8 @@ fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8],
         let resize = crop.resize_percentage;
         let pos_x = crop.pos_x_percentage;
         let pos_y = crop.pos_y_percentage;
+
+        write!(data, "{frame_number} {resize} {pos_x} {pos_y}").unwrap();
 
         for grid_y in 0..GRIDS_Y {
             for grid_x in 0..GRIDS_X {
@@ -626,9 +632,11 @@ fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8],
                 let average_green = f64::round(total_green as f64 / cropped_total_grid_pixels as f64) as u64;
                 let average_blue = f64::round(total_blue as f64 / cropped_total_grid_pixels as f64) as u64;
                 
-                writeln!(data, "{frame_number} {resize} {pos_x} {pos_y} {average_red},{average_green},{average_blue}").unwrap();
+                write!(data, " {average_red},{average_green},{average_blue}").unwrap();
             }
         }
+
+        writeln!(data).unwrap();
     }
 
     // let image = mage::RgbImage::from_raw(width as u32, height as u32, pixels.to_vec()).unwrap();
@@ -679,12 +687,16 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
 
     let mut data: HashMap<u64, FrameData> = HashMap::new();
 
+    // [index] [resize_percentage] [pos_x] [pos_y] [r,g,b] [r,g,b] [r,g,b] [r,g,b] [r,g,b] .....snip
+    let num_expected_rgb_values: u32 = GRIDS_X * GRIDS_Y;
+    let num_expected_parts = (num_expected_rgb_values + 4) as usize;
+
     let mut current_iframe_index: u64 = 0;
     let mut current_frame = FrameData::new(GRIDS_X, GRIDS_Y);
 
     for line in lines.map_while(Result::ok) {
         let parts: Vec<&str> = line.split(' ').collect();
-        if parts.len() != 5 {
+        if parts.len() != num_expected_parts {
             eprintln!("Invalid data: {line}");
             break;
         }
@@ -701,14 +713,22 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
         let pos_x: f64 = parts[2].parse()?;
         let pos_y: f64 = parts[3].parse()?;
 
-        let rgb: Vec<&str> = parts[4].split(',').collect();
+        let mut colors: Vec<Color> = Vec::with_capacity(num_expected_rgb_values as usize);
+        let offset = 4;
 
-        let r: u8 = rgb[0].parse()?;
-        let g: u8 = rgb[1].parse()?;
-        let b: u8 = rgb[2].parse()?;
+        for i in 0..num_expected_rgb_values {
+            let rgb_index = (i + offset) as usize;
+            let rgb: Vec<&str> = parts[rgb_index].split(',').collect();
+
+            let r: u8 = rgb[0].parse()?;
+            let g: u8 = rgb[1].parse()?;
+            let b: u8 = rgb[2].parse()?;
+
+            colors.push(Color { r, g, b });
+        }
 
         if resize_percentage == 100.0 {
-            current_frame.full_frame.push(Color { r, g, b });
+            current_frame.full_frame = colors;
         }
         else {
             let crop = current_frame.crops.iter_mut()
@@ -718,15 +738,12 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
                     crop.pos_y_percentage == pos_y
                 });
 
-            if let Some(crop) = crop {
-                crop.colors.push(Color { r, g, b });
-            }
-            else {
+            if crop.is_none() {
                 current_frame.crops.push(FrameCrop {
                     resize_percentage: resize_percentage,
                     pos_x_percentage: pos_x,
                     pos_y_percentage: pos_y,
-                    colors: vec![Color { r, g, b }],
+                    colors: colors,
                 });
             }
         }
