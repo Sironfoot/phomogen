@@ -194,7 +194,7 @@ const RESIZE_HEIGHT: u32 = 540;
 const BYTES_PER_PIXEL: u32 = 3;
 
 fn main() {
-    let video_path = "videos/sample.mp4";
+    let video_path = "videos/mustangs.mp4";
     let image_path = "images/test-image.jpeg";
 
     let meta_data = extract_video_meta_data(video_path)
@@ -210,10 +210,10 @@ fn main() {
             .expect("Failed to load database");
     }
 
-    println!("Loading Database...");
+    println!("Load Database...");
     let data = load_database(data_file)
         .expect("Failed to load database");
-    println!("    Loaded Data. {} frames processed!", data.len().to_formatted_string(&Locale::en));
+    println!("");
 
 
     println!("Calculating image colors...");
@@ -686,13 +686,11 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
     let lines = io::BufReader::new(file).lines();
 
     let mut data: HashMap<u64, FrameData> = HashMap::new();
+    let mut total_frames_processed: u32 = 0;
 
     // [index] [resize_percentage] [pos_x] [pos_y] [r,g,b] [r,g,b] [r,g,b] [r,g,b] [r,g,b] .....snip
     let num_expected_rgb_values: u32 = GRIDS_X * GRIDS_Y;
     let num_expected_parts = (num_expected_rgb_values + 4) as usize;
-
-    let mut current_iframe_index: u64 = 0;
-    let mut current_frame = FrameData::new(GRIDS_X, GRIDS_Y);
 
     for line in lines.map_while(Result::ok) {
         let parts: Vec<&str> = line.split(' ').collect();
@@ -701,13 +699,18 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
             break;
         }
 
-        let index: u64 = parts[0].parse()?;
-        if index > current_iframe_index {
-            data.insert(current_iframe_index, current_frame);
+        let frame_index: u64 = parts[0].parse()?;
 
-            current_iframe_index = index;
-            current_frame = FrameData::new(GRIDS_X, GRIDS_Y);
-        }
+        let frame = data
+            .entry(frame_index)
+            .or_insert_with(|| {
+                total_frames_processed += 1;
+                if total_frames_processed % 123 == 0 {
+                    print!("\r    Loaded {} frames", total_frames_processed.to_formatted_string(&Locale::en));
+                }
+
+                FrameData::new(GRIDS_X, GRIDS_Y)
+            });
 
         let resize_percentage: f64 = parts[1].parse()?;
         let pos_x: f64 = parts[2].parse()?;
@@ -728,10 +731,10 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
         }
 
         if resize_percentage == 100.0 {
-            current_frame.full_frame = colors;
+            frame.full_frame = colors;
         }
         else {
-            let crop = current_frame.crops.iter_mut()
+            let crop = frame.crops.iter_mut()
                 .find(|crop| {
                     crop.resize_percentage == resize_percentage &&
                     crop.pos_x_percentage == pos_x &&
@@ -739,7 +742,7 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
                 });
 
             if crop.is_none() {
-                current_frame.crops.push(FrameCrop {
+                frame.crops.push(FrameCrop {
                     resize_percentage: resize_percentage,
                     pos_x_percentage: pos_x,
                     pos_y_percentage: pos_y,
@@ -748,6 +751,8 @@ fn load_database(data_file: &str) -> Result<HashMap<u64, FrameData>, Box<dyn Err
             }
         }
     }
+
+    print!(". Done!");
 
     Ok(data)
 }
