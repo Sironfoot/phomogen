@@ -110,8 +110,8 @@ const RESIZE_WIDTH: u32 = 960;
 const RESIZE_HEIGHT: u32 = 540;
 const BYTES_PER_PIXEL: u32 = 3;
 
-const THREAD_COUNT: usize = 8;
-const QUEUE_SIZE: usize = 16;
+const THREAD_COUNT: usize = 12;
+const QUEUE_SIZE: usize = 24;
 
 fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaData) -> Result<(), Box<dyn Error>> {
     let frame_crops = CropSettings::all_crops(RESIZE_WIDTH, RESIZE_HEIGHT, GRIDS_X, GRIDS_Y);
@@ -142,7 +142,7 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
     let frame_size = RESIZE_WIDTH * RESIZE_HEIGHT * BYTES_PER_PIXEL;
 
     let mut stdout = child.stdout.take().unwrap();
-    //let buffer = vec![0u8; frame_size as usize];
+    let mut buffer = vec![0u8; frame_size as usize];
 
     let mut frame_index: u64 = 0;
     let total_frames = meta_data.total_frames;
@@ -150,17 +150,10 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
     let (tx, rx) = sync_channel::<(u64, Vec<u8>)>(QUEUE_SIZE);
     let rx = Arc::new(Mutex::new(rx));
 
-    let (free_tx, free_rx) = sync_channel::<Vec<u8>>(QUEUE_SIZE);
-
-    for _ in 0..QUEUE_SIZE {
-        free_tx.send(vec![8u8; frame_size as usize]).unwrap();
-    }
-
     let mut workers: Vec<thread::JoinHandle<()>> = Vec::new();
 
     for thread_index in 0..THREAD_COUNT {
         let rx = Arc::clone(&rx);
-        let free_tx = free_tx.clone();
         let frame_crops = frame_crops.clone();
         let video_path = String::from(video_path);
 
@@ -177,8 +170,6 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
                 };
 
                 process_frame(frame_index, &frame_crops, &buffer, RESIZE_WIDTH, RESIZE_HEIGHT, &mut data);
-
-                free_tx.send(buffer).unwrap();
             }
         }));
     }
@@ -188,8 +179,6 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
     let output_frame_interval = 123;
 
     loop {
-        let mut buffer = free_rx.recv().unwrap();
-
         match stdout.read_exact(&mut buffer) {
             Ok(()) => {
                 tx.send((frame_index, buffer)).unwrap();
@@ -213,6 +202,8 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
                         average_fps);
                     std::io::stdout().flush().unwrap();
                 }
+
+                buffer = vec![0u8; frame_size as usize];
             }
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
                 break;
@@ -224,7 +215,6 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
     }
 
     drop(tx);
-    drop(free_tx);
 
     for worker in workers {
         worker.join().unwrap();
