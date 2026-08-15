@@ -1,4 +1,4 @@
-use std::{cmp, error::Error, fs::{self, File}, io::{self, Read, Write}, process::{Command, Stdio}, thread, time::Instant};
+use std::{cmp, error::Error, fs::{self, File}, io::{self, BufWriter, Read, Write}, process::{Command, Stdio}, thread, time::Instant};
 
 use std::sync::{Arc, Mutex, mpsc::{sync_channel}};
 
@@ -110,15 +110,14 @@ const RESIZE_WIDTH: u32 = 960;
 const RESIZE_HEIGHT: u32 = 540;
 const BYTES_PER_PIXEL: u32 = 3;
 
-const THREAD_COUNT: usize = 12;
-const QUEUE_SIZE: usize = 24;
+const THREAD_COUNT: usize = 9;
+const QUEUE_SIZE: usize = 18;
 
 fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaData) -> Result<(), Box<dyn Error>> {
     let frame_crops = CropSettings::all_crops(RESIZE_WIDTH, RESIZE_HEIGHT, GRIDS_X, GRIDS_Y);
 
     let mut child = Command::new("ffmpeg")
         .args([
-            // "-hwaccel", "videotoolbox", // THIS MAKES IT RUN SLOWER
             "-i", video_path,
 
             "-vf", &format!("scale={RESIZE_WIDTH}:{RESIZE_HEIGHT}:flags=area"),
@@ -158,8 +157,9 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
         let video_path = String::from(video_path);
 
         workers.push(thread::spawn(move || {
-            let temp_file = format!("{video_path}_core-{thread_index}_temp.pmg");
-            let mut data = File::create(temp_file).unwrap();
+            let temp_file_path = format!("{video_path}_core-{thread_index}_temp.pmg");
+            let file = File::create(temp_file_path).unwrap();
+            let mut data = BufWriter::new(file);
 
             loop {
                 let result = rx.lock().unwrap().recv();
@@ -242,7 +242,7 @@ fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaDat
     Ok(())
 }
 
-fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8], width: u32, height: u32, data: &mut File) {
+fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8], width: u32, height: u32, data: &mut BufWriter<File>) {
     let grid_width = width / GRIDS_X;
     let grid_height = height / GRIDS_Y;
 
