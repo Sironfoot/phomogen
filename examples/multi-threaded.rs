@@ -90,10 +90,10 @@ impl CropSettings {
 }
 
 fn main() {
-    let video_path = "videos/mustangs.mp4";
+    let video_path = "videos/srr.mp4";
 
     let meta_data = extract_video_meta_data(video_path)
-            .expect("Error extracting video meta data");
+        .expect("Error extracting video meta data");
 
     println!("Video: {}x{} at {}fps", meta_data.width, meta_data.height, meta_data.frame_rate);
 
@@ -106,12 +106,12 @@ fn main() {
 const GRIDS_X: u32 = 4;
 const GRIDS_Y: u32 = 4;
 
-const RESIZE_WIDTH: u32 = 960;
-const RESIZE_HEIGHT: u32 = 540;
+const RESIZE_WIDTH: u32 = 1920;
+const RESIZE_HEIGHT: u32 = 1080;
 const BYTES_PER_PIXEL: u32 = 3;
 
-const THREAD_COUNT: usize = 9;
-const QUEUE_SIZE: usize = 18;
+const THREAD_COUNT: usize = 4;
+const QUEUE_SIZE: usize = 8;
 
 fn generate_database(video_path: &str, data_file: &str, meta_data: &VideoMetaData) -> Result<(), Box<dyn Error>> {
     let frame_crops = CropSettings::all_crops(RESIZE_WIDTH, RESIZE_HEIGHT, GRIDS_X, GRIDS_Y);
@@ -246,9 +246,9 @@ fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8],
     let grid_width = width / GRIDS_X;
     let grid_height = height / GRIDS_Y;
 
-    let total_grid_pixels: u64 = (grid_width * grid_height) as u64;
+    let total_grid_pixels: u32 = (grid_width * grid_height) as u32;
 
-    let mut output = String::new();
+    let mut output = String::with_capacity(8192);
 
     write!(&mut output, "{frame_number} 100 0 0").unwrap();
 
@@ -260,28 +260,24 @@ fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8],
             let start_y = grid_height * grid_y;
             let end_y = start_y + grid_height;
 
-            let mut total_red: u64 = 0;
-            let mut total_green: u64 = 0;
-            let mut total_blue: u64 = 0; 
+            let mut total_red: u32 = 0;
+            let mut total_green: u32 = 0;
+            let mut total_blue: u32 = 0;
 
-            for x in start_x..end_x {
-                for y in start_y..end_y {
-                    let offset = ((y * width + x) * BYTES_PER_PIXEL) as usize;
+            for y in start_y..end_y {
+                let row_start = ((y * width + start_x) * BYTES_PER_PIXEL) as usize;
+                let row_end = ((y * width + end_x) * BYTES_PER_PIXEL) as usize;
 
-                    let red = pixels[offset] as u64;
-                    total_red += red;
-
-                    let green = pixels[offset + 1] as u64;
-                    total_green += green;
-
-                    let blue = pixels[offset + 2] as u64;
-                    total_blue += blue;
+                for pixel in pixels[row_start..row_end].chunks_exact(3) {
+                    total_red += pixel[0] as u32;
+                    total_green += pixel[1] as u32;
+                    total_blue += pixel[2] as u32;
                 }
             }
 
-            let average_red = f64::round(total_red as f64 / total_grid_pixels as f64) as u64;
-            let average_green = f64::round(total_green as f64 / total_grid_pixels as f64) as u64;
-            let average_blue = f64::round(total_blue as f64 / total_grid_pixels as f64) as u64;
+            let average_red = f64::round(total_red as f64 / total_grid_pixels as f64) as u8;
+            let average_green = f64::round(total_green as f64 / total_grid_pixels as f64) as u8;
+            let average_blue = f64::round(total_blue as f64 / total_grid_pixels as f64) as u8;
 
             write!(&mut output, " {average_red},{average_green},{average_blue}").unwrap();
         }
@@ -311,28 +307,24 @@ fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8],
                 let start_y = crop_start_y + (cropped_grid_height * grid_y);
                 let end_y = cmp::min(start_y + cropped_grid_height, height);
 
-                let mut total_red: u64 = 0;
-                let mut total_green: u64 = 0;
-                let mut total_blue: u64 = 0;
+                let mut total_red: u32 = 0;
+                let mut total_green: u32 = 0;
+                let mut total_blue: u32 = 0;
 
-                for x in start_x..end_x {
-                    for y in start_y..end_y {
-                        let offset = ((y * width + x) * BYTES_PER_PIXEL) as usize;
+                for y in start_y..end_y {
+                    let row_start = ((y * width + start_x) * BYTES_PER_PIXEL) as usize;
+                    let row_end = ((y * width + end_x) * BYTES_PER_PIXEL) as usize;
 
-                        let red = pixels[offset];
-                        total_red += red as u64;
-
-                        let green = pixels[offset + 1];
-                        total_green += green as u64;
-
-                        let blue = pixels[offset + 2];
-                        total_blue += blue as u64;
+                    for pixel in pixels[row_start..row_end].chunks_exact(3) {
+                        total_red += pixel[0] as u32;
+                        total_green += pixel[1] as u32;
+                        total_blue += pixel[2] as u32;
                     }
                 }
 
-                let average_red = f64::round(total_red as f64 / cropped_total_grid_pixels as f64) as u64;
-                let average_green = f64::round(total_green as f64 / cropped_total_grid_pixels as f64) as u64;
-                let average_blue = f64::round(total_blue as f64 / cropped_total_grid_pixels as f64) as u64;
+                let average_red = f64::round(total_red as f64 / cropped_total_grid_pixels as f64) as u8;
+                let average_green = f64::round(total_green as f64 / cropped_total_grid_pixels as f64) as u8;
+                let average_blue = f64::round(total_blue as f64 / cropped_total_grid_pixels as f64) as u8;
                 
                 write!(&mut output, " {average_red},{average_green},{average_blue}").unwrap();
             }
@@ -341,7 +333,7 @@ fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8],
         writeln!(&mut output).unwrap();
     }
 
-    write!(data, "{output}").unwrap();
+    data.write_all(output.as_bytes()).unwrap();
 }
 
 fn extract_video_meta_data(video_path: &str) -> Result<VideoMetaData, Box<dyn Error>> {
