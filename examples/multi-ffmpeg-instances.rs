@@ -101,10 +101,16 @@ fn main() {
             let average_timer = Instant::now();
             let output_frame_interval = 123;
 
+            let mut integral = IntegralImage::new(RESIZE_WIDTH as usize, RESIZE_HEIGHT as usize);
+
             loop {
                 match stdout.read_exact(&mut buffer) {
                     Ok(()) => {
-                        process_frame(current_frame_index, &frame_crops, &buffer, RESIZE_WIDTH, RESIZE_HEIGHT, &mut data);
+                        integral.init(&buffer);
+                        process_frame_integral(current_frame_index, &frame_crops, &integral, &mut data);
+
+                        //process_frame(current_frame_index, &frame_crops, &buffer, RESIZE_WIDTH, RESIZE_HEIGHT, &mut data);
+
                         current_frame_index += 1;
 
                         if current_frame_index == ending_frame_index {
@@ -234,6 +240,68 @@ fn main() {
     println!("Finished: Time: {}", format_duration(total_elapsed));
 }
 
+fn process_frame_integral(frame_number: u64, frame_crops: &[CropSettings], integral: &IntegralImage, data: &mut BufWriter<File>) {
+    let mut output = String::with_capacity(8192);
+
+    let tiles_x = GRIDS_X as usize;
+    let tiles_y = GRIDS_Y as usize;
+
+    let grid_width = integral.width / tiles_x;
+    let grid_height = integral.height / tiles_y;
+
+    write!(&mut output, "{frame_number} 100 0 0").unwrap();
+
+    for tile_y in 0..tiles_y {
+        for tile_x in 0..tiles_x {
+            let start_x = grid_width * tile_x;
+            let end_x = start_x + grid_width;
+
+            let start_y = grid_height * tile_y;
+            let end_y = start_y + grid_height;
+
+            let [average_red, average_green, average_blue] = integral
+                .average_rect(start_x, start_y, end_x, end_y);
+
+            write!(&mut output, " {average_red},{average_green},{average_blue}").unwrap();
+        }
+    }
+
+    writeln!(&mut output).unwrap();
+
+    for crop in frame_crops.iter() {
+        let crop_start_x = crop.crop_start_x as usize;
+        let crop_start_y = crop.crop_start_y as usize;
+
+        let cropped_grid_width = crop.cropped_grid_width as usize;
+        let cropped_grid_height = crop.cropped_grid_height as usize;
+
+        let resize = crop.resize_percentage;
+        let pos_x = crop.pos_x_percentage;
+        let pos_y = crop.pos_y_percentage;
+
+        write!(&mut output, "{frame_number} {resize} {pos_x} {pos_y}").unwrap();
+
+        for tile_y in 0..tiles_y {
+            for tile_x in 0..tiles_x {
+                let start_x = crop_start_x + (cropped_grid_width * tile_x);
+                let end_x = cmp::min(start_x + cropped_grid_width, integral.width);
+
+                let start_y = crop_start_y + (cropped_grid_height * tile_y);
+                let end_y = cmp::min(start_y + cropped_grid_height, integral.height);
+
+                let [average_red, average_green, average_blue] = integral
+                    .average_rect(start_x, start_y, end_x, end_y);
+                
+                write!(&mut output, " {average_red},{average_green},{average_blue}").unwrap();
+            }
+        }
+
+        writeln!(&mut output).unwrap();
+    }
+
+    data.write_all(output.as_bytes()).unwrap();
+}
+
 fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8], width: u32, height: u32, data: &mut BufWriter<File>) {
     let grid_width = width / GRIDS_X;
     let grid_height = height / GRIDS_Y;
@@ -326,6 +394,80 @@ fn process_frame(frame_number: u64, frame_crops: &[CropSettings], pixels: &[u8],
     }
 
     data.write_all(output.as_bytes()).unwrap();
+}
+
+struct IntegralImage {
+    sums: Vec<[u32; 3]>,
+    stride: usize,
+    width: usize,
+    height: usize,
+}
+
+impl IntegralImage {
+    fn new(width: usize, height: usize) -> Self {
+        let stride = width + 1;
+        let sums = vec![[0u32; 3]; (width + 1) * (height + 1)];
+
+        Self {
+            sums,
+            stride,
+            width,
+            height,
+        }
+    }
+
+    fn init(&mut self, pixels: &[u8]) {
+        for y in 0..self.height {
+            let mut row_red: u32 = 0;
+            let mut row_green: u32 = 0;
+            let mut row_blue: u32 = 0;
+
+            let src_row = y * self.width * 3;
+            let dst_row = (y + 1) * self.stride;
+            let prev_row = y * self.stride;
+
+            for x in 0..self.width {
+                let src = src_row + x * 3;
+
+                row_red += pixels[src] as u32;
+                row_green += pixels[src + 1] as u32;
+                row_blue += pixels[src + 2] as u32;
+
+                let dst = dst_row + x + 1;
+                let above = prev_row + x + 1;
+
+                self.sums[dst][0] = self.sums[above][0] + row_red;
+                self.sums[dst][1] = self.sums[above][1] + row_green;
+                self.sums[dst][2] = self.sums[above][2] + row_blue;
+            }
+        }
+    }
+
+    #[inline]
+    fn sum_rect(&self, x1: usize, y1: usize, x2: usize, y2: usize) -> [u32; 3] {
+        let a = y1 * self.stride + x1;
+        let b = y1 * self.stride + x2;
+        let c = y2 * self.stride + x1;
+        let d = y2 * self.stride + x2;
+
+        [
+            self.sums[d][0] + self.sums[a][0] - self.sums[b][0] - self.sums[c][0],
+            self.sums[d][1] + self.sums[a][1] - self.sums[b][1] - self.sums[c][1],
+            self.sums[d][2] + self.sums[a][2] - self.sums[b][2] - self.sums[c][2],
+        ]
+    }
+
+    #[inline]
+    fn average_rect(&self, x1: usize, y1: usize, x2: usize, y2: usize) -> [u8; 3] {
+        let sum = self.sum_rect(x1, y1, x2, y2);
+        let count = ((x2 - x1) * (y2 - y1)) as u32;
+
+        [
+            ((sum[0] + count / 2) / count) as u8,
+            ((sum[1] + count / 2) / count) as u8,
+            ((sum[2] + count / 2) / count) as u8,
+        ]
+    }
 }
 
 #[derive(Debug)]
