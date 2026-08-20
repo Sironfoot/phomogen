@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.104"
 image = "0.25.10"
 num-format = "0.4.4"
+ratatui = "0.30.2"
