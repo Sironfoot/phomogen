@@ -1,12 +1,16 @@
+pub mod under_construction;
+pub mod initial_loading;
+pub mod video_selection;
+
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
-    text::{Text},
+    text::Text,
     widgets::{Block, Borders, Paragraph}
 };
 
-use crate::app::App;
+use crate::app::{App, AppStage};
 
 pub fn render_ui(frame: &mut Frame, app: &App){
     // Header
@@ -19,6 +23,10 @@ pub fn render_ui(frame: &mut Frame, app: &App){
         ])
         .split(frame.area());
 
+    let header = chunks[0];
+    let main_content = chunks[1];
+    let footer = chunks[2];
+
     let header_block = Block::default()
         .borders(Borders::ALL)
         .style(Style::default());
@@ -29,20 +37,14 @@ pub fn render_ui(frame: &mut Frame, app: &App){
     .alignment(ratatui::layout::HorizontalAlignment::Center)
     .block(header_block);
 
-    frame.render_widget(title, chunks[0]);
+    frame.render_widget(title, header);
 
     // Main section
-    let main_block = Block::default()
-        .borders(Borders::ALL)
-        .style(Style::default());
-
-    let main_text = Paragraph::new(
-        Text::styled("Main Content Here", Style::default().bg(Color::Red))
-    )
-    .alignment(ratatui::layout::HorizontalAlignment::Center)
-    .block(main_block);
-
-    frame.render_widget(main_text, chunks[1]);
+    match app.stage {
+        AppStage::Initial => initial_loading::render(frame, main_content),
+        AppStage::VideoSelect => video_selection::render(frame, main_content, app),
+        _ => under_construction::render(frame, main_content),
+    };
 
     // Footer
     let footer_block = Block::default()
@@ -50,10 +52,10 @@ pub fn render_ui(frame: &mut Frame, app: &App){
         .style(Style::default());
 
     let footer_text = Paragraph::new(
-        Text::styled("Project by Dominic Pettifer. Press (q) to Quit.", Style::default().bg(Color::Blue))
+        Text::styled("by Dominic Pettifer (v0.1.0). Press (q) to Quit.", Style::default().bg(Color::Blue))
     )
     .alignment(ratatui::layout::HorizontalAlignment::Center)
     .block(footer_block);
 
-    frame.render_widget(footer_text, chunks[2]);
+    frame.render_widget(footer_text, footer);
 }
