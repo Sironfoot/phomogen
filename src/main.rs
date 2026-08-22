@@ -22,6 +22,7 @@ use anyhow::Result;
 
 use crate::app::{App, AppStage, VideoFile};
 use crate::ui::render_ui;
+use crate::ffmpeg::VideoMetadata;
 
 const TEST_DIR: &str = "./videos";
 
@@ -87,7 +88,7 @@ where
 
         for video_file in video_files {
             let full_path = format!("{TEST_DIR}/{video_file}");
-            let meta_data = ffmpeg::extract_meta_data(&full_path);
+            let meta_data = VideoMetadata::extract_from(&full_path);
 
             if let Ok(meta_data) = meta_data {
                 let video = VideoFile {
