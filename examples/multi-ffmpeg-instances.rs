@@ -265,7 +265,7 @@ fn process_frame_integral(frame_number: u64, frame_crops: &[CropSetting], integr
     data.write_all(output.as_bytes()).unwrap();
 }
 
-fn process_frame(frame_number: u64, frame_crops: &[CropSetting], pixels: &[u8], width: u32, height: u32, data: &mut BufWriter<File>) {
+fn process_frame(frame_number: u64, frame_crops: &[CropSetting], pixels: &[u8], width: u32, _: u32, data: &mut BufWriter<File>) {
     let mut output = String::with_capacity(8192);
     
     for crop in frame_crops.iter() {
