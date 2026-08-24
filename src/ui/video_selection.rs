@@ -57,9 +57,9 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
             let style_color = if v.is_selected { Color::White } else { Color::DarkGray };
             let style = Style::default().fg(style_color);
 
-            let duration = format_duration(v.length);
+            let duration = format_duration(v.metadata.duration);
 
-            let variable_flag = if v.is_constant_frame_rate { "" } else { " - (VFR)" };
+            let variable_flag = if v.metadata.is_variable_frame_rate { " - (VRF)" } else { "" };
             
             ListItem::new(format!("{marker} {} - {duration}{variable_flag}", v.file_name)).style(style)
         })
@@ -74,11 +74,12 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
 
     frame.render_stateful_widget(list, list_section, &mut list_state);
 
-    let instructions_text = "\
-Use (Up) & (Down) arrows. Press (Space) to toggle selection.
-Press (a) to select all videos.";
-
     // instructions
+    let instructions_text = indoc::indoc! {"
+        Use (Up) & (Down) arrows. Press (Space) to toggle selection.
+        Press (a) to select all videos.
+    "};
+
     let instructions =  Paragraph::new(
         Text::styled(instructions_text, Style::default().fg(Color::Green))
     )
@@ -87,11 +88,11 @@ Press (a) to select all videos.";
 
     frame.render_widget(instructions, instructions_section);
 
+    // status
     let total_duration = format_duration(app.total_selected_video_duration());
     let total_frames = app.total_selected_video_frames().to_formatted_string(&Locale::en);
     let status_text = format!("Total video length: {total_duration} - {total_frames} frames");
 
-    // status
     let [length_section, warning_section] =
         Layout::vertical([
             Constraint::Length(1),
@@ -108,7 +109,7 @@ Press (a) to select all videos.";
     frame.render_widget(status_info, length_section);
 
     let num_chosen_with_vfr = app.videos.iter()
-        .filter(|v| v.is_selected && !v.is_constant_frame_rate)
+        .filter(|v| v.is_selected && v.metadata.is_variable_frame_rate)
         .count();
 
     if num_chosen_with_vfr > 0 {

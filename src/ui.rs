@@ -1,6 +1,7 @@
 pub mod under_construction;
 pub mod initial_loading;
 pub mod video_selection;
+pub mod image_selection;
 
 use ratatui::{
     Frame,
@@ -43,6 +44,7 @@ pub fn render_ui(frame: &mut Frame, app: &App){
     match app.stage {
         AppStage::Initial => initial_loading::render(frame, main_content),
         AppStage::VideoSelect => video_selection::render(frame, main_content, app),
+        AppStage::ImageSelect => image_selection::render(frame, main_content, app),
         _ => under_construction::render(frame, main_content),
     };
 
