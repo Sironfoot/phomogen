@@ -22,7 +22,7 @@ use ratatui::crossterm::terminal::{
 
 use anyhow::Result;
 
-use crate::app::{App, AppStage, ImageFile, ImageType, VideoFile};
+use crate::app::{App, AppStage, ImageFile, ImageType, VideoFile, VideoIndexingReport, VideoIndexCore, VideoIndexStatus};
 use crate::ui::render_ui;
 use crate::ffmpeg::VideoMetadata;
 
@@ -65,8 +65,6 @@ where
             terminal.draw(|frame| render_ui(frame, app))?;
             should_render = false;
         }
-
-        //println!("{}", terminal.size().unwrap().width);
 
         match app.stage {
             AppStage::Initial => {
@@ -113,7 +111,37 @@ where
                         }
                     }
                 }
-            }
+            },
+            AppStage::GenerateMosaicDatabase => {
+                const NUM_CORES: u32 = 9;
+                
+                let mut video_reports: Vec<VideoIndexingReport> = vec![];
+
+                for video in app.videos.iter().filter(|v| v.is_selected) {
+                    let mut video_report = VideoIndexingReport::new(&video.file_name);
+                    let frames_per_core = (video.metadata.total_frames as f64 / NUM_CORES as f64).round() as u64;
+
+                    for core_id in 0..NUM_CORES {
+                        let core = VideoIndexCore::new(core_id, frames_per_core);
+                        video_report.cores.push(core);
+                    }
+
+                    video_reports.push(video_report);
+                }
+
+                let video_report = video_reports.get_mut(0).unwrap();
+                video_report.status = VideoIndexStatus::Running;
+
+                for core in video_report.cores.as_mut_slice() {
+                    core.average_fps = 123.45;
+                    core.frames_processed = 12978;
+                    core.status = VideoIndexStatus::Running;
+                }
+
+                app.video_indexing_report = Some(video_reports);
+
+                should_render = true;
+            },
             _ => {}
         }
 
@@ -247,7 +275,7 @@ where
                             },
                             KeyCode::Enter => {
                                 if app.images.iter().any(|i| i.is_selected) {
-                                    app.stage = AppStage::BeginProcessing;
+                                    app.stage = AppStage::GenerateMosaicDatabase;
                                 }
                                 should_render = true;
                             }
