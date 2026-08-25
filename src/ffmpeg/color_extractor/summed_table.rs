@@ -117,3 +117,17 @@ impl FrameColorExtractionAlgorithm for SummedAreaTable {
         Ok(output)
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::SummedAreaTable;
+    use super::super::test_support::assert_correct_color_averages;
+
+    #[test]
+    fn correct_color_averages() {
+        assert_correct_color_averages(|width, height, crops| {
+            SummedAreaTable::new(width, height, crops)
+        });
+    }
+}

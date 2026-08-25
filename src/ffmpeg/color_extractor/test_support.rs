@@ -1,9 +1,9 @@
 use image::{Rgb, RgbImage};
 
-use super::{FrameColorExtractionAlgorithm, PixelArray, SummedAreaTable};
+use super::FrameColorExtractionAlgorithm;
 use crate::ffmpeg::crops::CropSetting;
 
-fn assert_correct_color_averages<A>(create_algorithm: impl FnOnce(u32, u32, Vec<CropSetting>) -> A)
+pub(super) fn assert_correct_color_averages<A>(create_algorithm: impl FnOnce(u32, u32, Vec<CropSetting>) -> A)
 where
     A: FrameColorExtractionAlgorithm,
 {
@@ -89,19 +89,4 @@ where
                 "line {i} does not start with `{expected_line}`. Full line: `{line}`");
         }
     }
-}
-
-
-#[test]
-fn pixel_array_returns_correct_color_averages() {
-    assert_correct_color_averages(|width, _height, crops| {
-        PixelArray::new(width, crops)
-    });
-}
-
-#[test]
-fn summed_area_table_returns_correct_color_averages() {
-    assert_correct_color_averages(|width, height, crops| {
-        SummedAreaTable::new(width, height, crops)
-    });
 }

@@ -68,3 +68,17 @@ impl FrameColorExtractionAlgorithm for PixelArray {
         Ok(output)
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::PixelArray;
+    use super::super::test_support::assert_correct_color_averages;
+
+    #[test]
+    fn correct_color_averages() {
+        assert_correct_color_averages(|width, _height, crops| {
+            PixelArray::new(width, crops)
+        });
+    }
+}
