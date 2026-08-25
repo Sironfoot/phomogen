@@ -32,6 +32,17 @@ impl AspectRatio {
             _ => false,
         }
     }
+
+    pub fn ratio(&self) -> f64 {
+         match self {
+            Self::Square1x1 => 1.0,
+            Self::Landscape4x3 => 1.3333333333,
+            Self::Landscape16x9 => 1.7777777778,
+            Self::Landscape21x9 => 2.3333333333,
+            Self::Portrait9x16 => 0.5625,
+            Self::Custom(ratio) => *ratio,
+        }
+    }
 }
 
 impl Display for AspectRatio {
