@@ -68,14 +68,3 @@ impl FrameColorExtractionAlgorithm for PixelArray {
         Ok(output)
     }
 }
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn correct_color_averages() {
-        
-    }
-}

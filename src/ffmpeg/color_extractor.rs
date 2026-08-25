@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 pub mod summed_table;
 pub use summed_table::SummedAreaTable;
 
