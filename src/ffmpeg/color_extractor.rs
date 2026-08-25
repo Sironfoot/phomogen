@@ -1,10 +1,14 @@
+pub mod summed_table;
+pub use summed_table::SummedAreaTable;
+
+pub mod pixel_array;
+pub use pixel_array::PixelArray;
+
 use std::{fs::File, io::{BufWriter, Read}, process::{Command, Stdio}, sync::mpsc, time::Instant};
 use anyhow::Result;
 use std::io::Write as IoWrite;
-use std::fmt::Write;
 
 use crate::ffmpeg::VideoMetadata;
-use crate::ffmpeg::summed_table::SummedAreaTable;
 use crate::ffmpeg::crops::CropSetting;
 
 const BYTES_PER_PIXEL: u32 = 3;
@@ -13,6 +17,28 @@ const BYTES_PER_PIXEL: u32 = 3;
 pub enum ColorExtractionAlgorithm {
     PixelArrayTraversal,
     SummedAreaTable,
+}
+
+pub trait FrameColorExtractionAlgorithm {
+    fn process_frame(&mut self, frame_number: u64, pixels: &[u8]) -> Result<String>;
+}
+
+fn compute_output_buffer_size(crops: &[CropSetting]) -> usize {
+    let mut buffer_capacity: usize = 10;
+
+    // database entries look like: [Frame Index] [Crop Size] [PosX] [PosY] [R,G,B] [R,G,B] [R,G,B] [R,G,B]...
+    // e.g. 1123456 66.666 33.333 33.333 255,255,255 255,255,255 255,255,255 255,255,255....
+    let prefix_length = "1123456 66.666 33.333 33.333 ".len();
+    let rgb_length = "255,255,255 ".len();
+    
+    for crop in crops.iter() {
+        buffer_capacity += prefix_length;
+
+        let num_tiles = crop.tiles.len();
+        buffer_capacity += num_tiles * rgb_length;
+    }
+
+    buffer_capacity
 }
 
 pub struct ColorExtractionProgress {
@@ -135,32 +161,23 @@ impl ColorExtractor {
         let average_timer = Instant::now();
         let output_frame_interval = 123;
 
-        let mut summed_table = match self.algorithm {
-            ColorExtractionAlgorithm::SummedAreaTable => {
-                Some(SummedAreaTable::new(frame_width, frame_height))
-            },
-            _ => None
-        };
+        let mut color_extraction_algorithm: Box<dyn FrameColorExtractionAlgorithm> =
+            match self.algorithm {
+                ColorExtractionAlgorithm::PixelArrayTraversal => {
+                    Box::new(PixelArray::new(frame_width, frame_crops))
+                },
+                ColorExtractionAlgorithm::SummedAreaTable => {
+                    Box::new(SummedAreaTable::new(frame_width, frame_height, frame_crops))
+                }
+            };
 
         loop {
             match stdout.read_exact(&mut buffer) {
                 Ok(()) => {
-                    if self.algorithm == ColorExtractionAlgorithm::PixelArrayTraversal {
-                        self.process_frame_pixel_array(
-                            current_frame_index,
-                            &frame_crops, 
-                            &buffer)?;
-                    }
-                    else {
-                        let summed_table = summed_table.as_mut()
-                            .expect("summed-area-table not initialised");
-                        summed_table.init(&buffer);
+                    let output = color_extraction_algorithm
+                        .process_frame(current_frame_index, &buffer)?;
 
-                        self.process_frame_summed_table(
-                            current_frame_index,
-                            &frame_crops,
-                            &summed_table)?;
-                    }
+                    self.data_file.write_all(output.as_bytes())?;
 
                     current_frame_index += 1;
 
@@ -208,72 +225,6 @@ impl ColorExtractor {
         }
 
         child.wait()?;
-
-        Ok(())
-    }
-
-    fn process_frame_pixel_array(&mut self, frame_number: u64, frame_crops: &[CropSetting], pixels: &[u8]) -> Result<()> {
-        let mut output = String::with_capacity(8192);
-        
-        for crop in frame_crops.iter() {
-            let resize = crop.resize_percentage;
-            let pos_x = crop.pos_x_percentage;
-            let pos_y = crop.pos_y_percentage;
-
-            write!(&mut output, "{frame_number} {resize} {pos_x} {pos_y}")?;
-
-            for tile in crop.tiles.iter() {
-                let mut total_red: u32 = 0;
-                let mut total_green: u32 = 0;
-                let mut total_blue: u32 = 0;
-
-                for y in tile.start_y..tile.end_y {
-                    let row_start = ((y * self.resize_width + tile.start_x) * BYTES_PER_PIXEL) as usize;
-                    let row_end = ((y * self.resize_width + tile.end_x) * BYTES_PER_PIXEL) as usize;
-
-                    for pixel in pixels[row_start..row_end].chunks_exact(3) {
-                        total_red += pixel[0] as u32;
-                        total_green += pixel[1] as u32;
-                        total_blue += pixel[2] as u32;
-                    }
-                }
-
-                let average_red = f64::round(total_red as f64 / tile.total_pixels as f64) as u8;
-                let average_green = f64::round(total_green as f64 / tile.total_pixels as f64) as u8;
-                let average_blue = f64::round(total_blue as f64 / tile.total_pixels as f64) as u8;
-                
-                write!(&mut output, " {average_red},{average_green},{average_blue}")?;
-            }
-
-            writeln!(&mut output)?;
-        }
-
-        self.data_file.write_all(output.as_bytes())?;
-
-        Ok(())
-    }
-
-    fn process_frame_summed_table(&mut self, frame_number: u64, frame_crops: &[CropSetting], summed_table: &SummedAreaTable) -> Result<()> {
-        let mut output = String::with_capacity(8192);
-
-        for crop in frame_crops.iter() {
-            let resize = crop.resize_percentage;
-            let pos_x = crop.pos_x_percentage;
-            let pos_y = crop.pos_y_percentage;
-
-            write!(&mut output, "{frame_number} {resize} {pos_x} {pos_y}")?;
-
-            for tile in crop.tiles.iter() {
-                let [average_red, average_green, average_blue] = summed_table
-                    .average_rect(tile.start_x, tile.start_y, tile.end_x, tile.end_y);
-                    
-                write!(&mut output, " {average_red},{average_green},{average_blue}")?;
-            }
-
-            writeln!(&mut output)?;
-        }
-
-        self.data_file.write_all(output.as_bytes())?;
 
         Ok(())
     }
