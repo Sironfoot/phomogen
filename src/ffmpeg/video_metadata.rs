@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 
 use crate::ffmpeg::{AspectRatio, VideoCodec};
 
+#[derive(Clone, Debug)]
 pub struct VideoMetadata {
     pub file_name: String,
     pub full_path: PathBuf,

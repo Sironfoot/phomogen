@@ -1,4 +1,4 @@
-use std::{ops::Add, path::PathBuf, time::Duration};
+use std::{ops::Add, path::{Path, PathBuf}, time::Duration};
 
 use image::DynamicImage;
 
@@ -10,6 +10,9 @@ pub struct App {
     pub system_info: SystemInfo,
     pub working_dir: PathBuf,
     pub database_dir: PathBuf,
+
+    pub tiles_x: u32,
+    pub tiles_y: u32,
 
     pub current_video_index: u32,
     pub videos: Vec<VideoFile>,
@@ -44,6 +47,7 @@ pub struct ImageFile {
     pub is_selected: bool,
 }
 
+#[derive(Clone, Debug)]
 pub struct VideoIndexingReport {
     pub file_name: String,
     pub cores: Vec<VideoIndexCore>,
@@ -55,7 +59,7 @@ impl VideoIndexingReport {
         VideoIndexingReport {
             file_name: String::from(file_name),
             cores: vec![],
-            status: VideoIndexStatus::Initialising,
+            status: VideoIndexStatus::NotStarted,
         }
     }
 
@@ -79,6 +83,7 @@ impl VideoIndexingReport {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct VideoIndexCore {
     pub core_id: u32,
     pub frames_processed: u64,
@@ -95,14 +100,14 @@ impl VideoIndexCore {
             frames_processed: 0,
             total_frames,
             average_fps: 0.0,
-            status: VideoIndexStatus::Initialising,
+            status: VideoIndexStatus::NotStarted,
         }
     }
 
     pub fn percentage_complete(&self) -> f64 {
         match self.status {
             VideoIndexStatus::Finished => 100.0,
-            VideoIndexStatus::Initialising => 0.0,
+            VideoIndexStatus::Initialising | VideoIndexStatus::NotStarted => 0.0,
             VideoIndexStatus::Running => {
                 (100.0 / self.total_frames as f64) * self.frames_processed as f64
             }
@@ -110,8 +115,9 @@ impl VideoIndexCore {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum VideoIndexStatus {
+    NotStarted,
     Initialising,
     Running,
     Finished,
@@ -125,16 +131,19 @@ pub enum ImageType {
     TIFF,
 }
 
+const DATABASE_DIR: &str = "pmg_data";
+
 impl App {
-    pub fn new(wk_dir: &str, sys_info: SystemInfo) -> App {
-        let working_dir = PathBuf::from(wk_dir);
-        let database_dir = working_dir.join("/pmg_data");
+    pub fn new(wk_dir: &Path, sys_info: SystemInfo) -> App {
+        let database_dir = wk_dir.join(DATABASE_DIR);
 
         App {
             stage: AppStage::Initial,
             system_info: sys_info,
-            working_dir: working_dir,
+            working_dir: PathBuf::from(wk_dir),
             database_dir: database_dir,
+            tiles_x: 4,
+            tiles_y: 4,
             current_video_index: 0,
             videos: vec![],
             color_extraction_algorithm: ColorExtractionAlgorithm::PixelArrayTraversal,
@@ -183,5 +192,6 @@ pub enum AppStage {
     VideoSelect,
     ImageSelect,
     GenerateMosaicDatabase,
+    LoadMosaicDatabase,
     Quitting,
 }

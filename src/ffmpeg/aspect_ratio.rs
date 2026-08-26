@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum AspectRatio {
     Square1x1,
     Landscape4x3,
