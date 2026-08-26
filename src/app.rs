@@ -6,6 +6,8 @@ use crate::ffmpeg::VideoMetadata;
 
 pub struct App {
     pub stage: AppStage,
+    pub system_info: SystemInfo,
+    pub working_dir: String,
 
     pub current_video_index: u32,
     pub videos: Vec<VideoFile>,
@@ -14,6 +16,14 @@ pub struct App {
     pub images: Vec<ImageFile>,
     
     pub video_indexing_report: Option<Vec<VideoIndexingReport>>,
+}
+
+pub struct SystemInfo {
+    pub available_physical_cores: Option<u32>,
+    pub max_allowed_cores: u32,
+
+    pub total_drive_space: Option<u64>,
+    pub free_space: Option<u64>,
 }
 
 pub struct VideoFile {
@@ -113,9 +123,11 @@ pub enum ImageType {
 }
 
 impl App {
-    pub fn new() -> App {
+    pub fn new(wk_dir: &str, sys_info: SystemInfo) -> App {
         App {
             stage: AppStage::Initial,
+            system_info: sys_info,
+            working_dir: String::from(wk_dir),
             current_video_index: 0,
             videos: vec![],
             current_image_index: 0,

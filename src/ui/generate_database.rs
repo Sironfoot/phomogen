@@ -86,7 +86,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
                 format!("* Core {}: Intialising...\n", core.core_id)
             }
             _ => {
-                format!("* Core {}: {}/{} frames ({:.2}%) - {:.2} fps\n",
+                format!("* Core {}: {} / {} frames ({:.2}%) - {:.2} fps\n",
                     core.core_id,
                     core.frames_processed.to_formatted_string(&Locale::en),
                     core.total_frames.to_formatted_string(&Locale::en),
@@ -110,12 +110,12 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     let video_progress_guage = Gauge::default()
         .style(Modifier::BOLD)
         .gauge_style(Style::new().blue().on_black())
-        .label(format!("Total: {}/{} frames ({:.2}%) - {:.2} fps",
+        .label(format!("Total: {} / {} frames ({:.2}%) - {:.2} fps",
             current_video.frames_processed().to_formatted_string(&Locale::en),
             current_video.total_frames().to_formatted_string(&Locale::en),
             current_video.percentage_complete(),
             current_video.average_fps()))
-        .percent(50);
+        .percent(current_video.percentage_complete().round() as u16);
 
     frame.render_widget(video_progress_guage, total_section);
 

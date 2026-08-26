@@ -21,14 +21,58 @@ use ratatui::crossterm::terminal::{
 };
 
 use anyhow::Result;
+use sysinfo::{Disks, System};
 
-use crate::app::{App, AppStage, ImageFile, ImageType, VideoFile, VideoIndexingReport, VideoIndexCore, VideoIndexStatus};
+use crate::app::{App, AppStage, ImageFile, ImageType, SystemInfo, VideoFile, VideoIndexCore, VideoIndexStatus, VideoIndexingReport};
 use crate::ui::render_ui;
 use crate::ffmpeg::VideoMetadata;
 
-const TEST_DIR: &str = "./videos";
+const DEFAULT_MAX_CORES: u32 = 4;
 
 fn main() -> Result<()> {
+    // TODO: replace with CLI args + better error handling
+    const TEST_DIR: &str = "./videos";
+
+    let wk_dir = TEST_DIR; 
+
+    let physical_cores = match System::physical_core_count() {
+        Some(cores) => Some(cores as u32),
+        None => None,
+    };
+
+    // TODO: will eventually be configurable
+    let max_allowed_cores = physical_cores.unwrap_or(DEFAULT_MAX_CORES);
+
+    let working_dir = match std::fs::canonicalize(wk_dir) {
+        Ok(path) => path,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            panic!("path {wk_dir} does not exist");
+        },
+        Err(err) => panic!("Unknown error: {}", err),
+    };
+    
+    let disks = Disks::new_with_refreshed_list();
+
+    let current_disk = disks
+        .list()
+        .iter()
+        .filter(|disk| working_dir.starts_with(disk.mount_point()))
+        .max_by_key(|disk| disk.mount_point().components().count());
+    
+    let (total_space, free_space) = match current_disk {
+        Some(disk) => (Some(disk.total_space()), Some(disk.available_space())),
+        None => (None, None),
+    };
+
+    let sys_info = SystemInfo {
+        available_physical_cores: physical_cores,
+        max_allowed_cores: max_allowed_cores,
+        total_drive_space: total_space,
+        free_space: free_space,
+    };
+
+    let working_dir = working_dir.display().to_string();
+
     enable_raw_mode()?;
 
     let mut stdout = io::stdout();
@@ -37,7 +81,7 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new();
+    let mut app = App::new(&working_dir, sys_info);
     run_app(&mut terminal, &mut app)?;
 
     disable_raw_mode()?;
@@ -55,8 +99,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
 where
     io::Error: From<B::Error>
 {
-    let rc = read_video_files(TEST_DIR);
+    let rc = read_video_files(&app.working_dir);
     let mut images_receiver: Option<Receiver<Vec<ImageFile>>> = None;
+
 
     let mut should_render = true;
 
@@ -81,7 +126,7 @@ where
             },
             AppStage::ImageSelect => {
                 if images_receiver.is_none() {
-                    images_receiver = Some(read_image_files(TEST_DIR));
+                    images_receiver = Some(read_image_files(&app.working_dir));
                 }
 
                 if let Some(rc) = &images_receiver {
@@ -93,7 +138,7 @@ where
                             if let Some(selected_image) = app.images.get_mut(0) {
                                 selected_image.is_selected = true;
 
-                                let image_path = format!("{TEST_DIR}/{}", selected_image.file_name);
+                                let image_path = format!("{}/{}", &app.working_dir, selected_image.file_name);
 
                                 if let Ok(image) = image::open(image_path) {
                                     let image = if image.width() > 320 {
@@ -113,15 +158,14 @@ where
                 }
             },
             AppStage::GenerateMosaicDatabase => {
-                const NUM_CORES: u32 = 9;
-                
+                let num_cores = (app.system_info.max_allowed_cores as f64 / 2.0).floor() as u32;
                 let mut video_reports: Vec<VideoIndexingReport> = vec![];
 
                 for video in app.videos.iter().filter(|v| v.is_selected) {
                     let mut video_report = VideoIndexingReport::new(&video.file_name);
-                    let frames_per_core = (video.metadata.total_frames as f64 / NUM_CORES as f64).round() as u64;
+                    let frames_per_core = (video.metadata.total_frames as f64 / num_cores as f64).round() as u64;
 
-                    for core_id in 0..NUM_CORES {
+                    for core_id in 0..num_cores {
                         let core = VideoIndexCore::new(core_id, frames_per_core);
                         video_report.cores.push(core);
                     }
@@ -254,7 +298,7 @@ where
                                     selected_image.is_selected = true;
 
                                     if selected_image.preview.is_none() {
-                                        let image_path = format!("{TEST_DIR}/{}", selected_image.file_name);
+                                        let image_path = format!("{}/{}", &app.working_dir, selected_image.file_name);
 
                                         if let Ok(image) = image::open(image_path) {
                                             let image = if image.width() > 320 {
@@ -302,7 +346,7 @@ fn read_video_files(dir: &str) -> Receiver<Vec<VideoFile>> {
 
         let mut video_files: Vec<String> = vec![];
 
-        let entries = fs::read_dir(dir).unwrap();
+        let entries = fs::read_dir(&dir).unwrap();
 
         for entry in entries.flatten() {
             let path = entry.path();
@@ -327,7 +371,7 @@ fn read_video_files(dir: &str) -> Receiver<Vec<VideoFile>> {
         let mut videos: Vec<VideoFile> = Vec::with_capacity(video_files.len());
 
         for video_file in video_files {
-            let full_path = format!("{TEST_DIR}/{video_file}");
+            let full_path = format!("{dir}/{video_file}");
             let meta_data = VideoMetadata::extract_from(&full_path);
 
             if let Ok(meta_data) = meta_data {
@@ -358,7 +402,7 @@ fn read_image_files(dir: &str) -> Receiver<Vec<ImageFile>> {
 
         let mut image_files: Vec<String> = vec![];
 
-        let entries = fs::read_dir(dir).unwrap();
+        let entries = fs::read_dir(&dir).unwrap();
 
         for entry in entries.flatten() {
             let path = entry.path();
@@ -383,7 +427,7 @@ fn read_image_files(dir: &str) -> Receiver<Vec<ImageFile>> {
         let mut images: Vec<ImageFile> = vec![];
 
         for image_file in image_files {
-            let full_path = format!("{TEST_DIR}/{image_file}");
+            let full_path = format!("{dir}/{image_file}");
 
             let Ok(image) = ImageReader::open(full_path) else { continue; };
             let Ok(image) = image.with_guessed_format() else { continue; };
