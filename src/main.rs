@@ -24,6 +24,7 @@ use anyhow::Result;
 use sysinfo::{Disks, System};
 
 use crate::app::{App, AppStage, ImageFile, ImageType, SystemInfo, VideoFile, VideoIndexCore, VideoIndexStatus, VideoIndexingReport};
+use crate::ffmpeg::color_extractor::ColorExtractionProgress;
 use crate::ui::render_ui;
 use crate::ffmpeg::VideoMetadata;
 
@@ -99,7 +100,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
 where
     io::Error: From<B::Error>
 {
-    let rc = read_video_files(&app.working_dir);
+    let rc = read_video_files(&app);
     let mut images_receiver: Option<Receiver<Vec<ImageFile>>> = None;
 
 
@@ -126,7 +127,7 @@ where
             },
             AppStage::ImageSelect => {
                 if images_receiver.is_none() {
-                    images_receiver = Some(read_image_files(&app.working_dir));
+                    images_receiver = Some(read_image_files(&app));
                 }
 
                 if let Some(rc) = &images_receiver {
@@ -138,9 +139,7 @@ where
                             if let Some(selected_image) = app.images.get_mut(0) {
                                 selected_image.is_selected = true;
 
-                                let image_path = format!("{}/{}", &app.working_dir, selected_image.file_name);
-
-                                if let Ok(image) = image::open(image_path) {
+                                if let Ok(image) = image::open(&selected_image.full_path) {
                                     let image = if image.width() > 320 {
                                         let ratio = image.height() as f64 / image.width() as f64;
                                         let height = f64::round(320 as f64 * ratio) as u32;
@@ -162,7 +161,7 @@ where
                 let mut video_reports: Vec<VideoIndexingReport> = vec![];
 
                 for video in app.videos.iter().filter(|v| v.is_selected) {
-                    let mut video_report = VideoIndexingReport::new(&video.file_name);
+                    let mut video_report = VideoIndexingReport::new(&video.metadata.file_name);
                     let frames_per_core = (video.metadata.total_frames as f64 / num_cores as f64).round() as u64;
 
                     for core_id in 0..num_cores {
@@ -298,7 +297,7 @@ where
                                     selected_image.is_selected = true;
 
                                     if selected_image.preview.is_none() {
-                                        let image_path = format!("{}/{}", &app.working_dir, selected_image.file_name);
+                                        let image_path = app.working_dir.join(selected_image.file_name.clone());
 
                                         if let Ok(image) = image::open(image_path) {
                                             let image = if image.width() > 320 {
@@ -335,9 +334,19 @@ where
     Ok(())
 }
 
-fn read_video_files(dir: &str) -> Receiver<Vec<VideoFile>> {
+fn generate_database(video: VideoMetadata, app: &App) -> Receiver<ColorExtractionProgress> {
+    let (tx, rc) = mpsc::channel::<ColorExtractionProgress>();
+
+    thread::spawn(|| {
+
+    });
+
+    rc 
+}
+
+fn read_video_files(app: &App) -> Receiver<Vec<VideoFile>> {
     let (tx, rc) = mpsc::channel::<Vec<VideoFile>>();
-    let dir = String::from(dir);
+    let working_dir = app.working_dir.clone();
 
     thread::spawn(move || {
         const VIDEO_EXTENSIONS: &[&str] = &[
@@ -346,7 +355,7 @@ fn read_video_files(dir: &str) -> Receiver<Vec<VideoFile>> {
 
         let mut video_files: Vec<String> = vec![];
 
-        let entries = fs::read_dir(&dir).unwrap();
+        let entries = fs::read_dir(&working_dir).unwrap();
 
         for entry in entries.flatten() {
             let path = entry.path();
@@ -371,12 +380,11 @@ fn read_video_files(dir: &str) -> Receiver<Vec<VideoFile>> {
         let mut videos: Vec<VideoFile> = Vec::with_capacity(video_files.len());
 
         for video_file in video_files {
-            let full_path = format!("{dir}/{video_file}");
+            let full_path = working_dir.join(video_file);
             let meta_data = VideoMetadata::extract_from(&full_path);
 
             if let Ok(meta_data) = meta_data {
                 let video = VideoFile {
-                    file_name: video_file,
                     metadata: meta_data,
                     is_selected: false,
                 };
@@ -391,9 +399,9 @@ fn read_video_files(dir: &str) -> Receiver<Vec<VideoFile>> {
     rc
 }
 
-fn read_image_files(dir: &str) -> Receiver<Vec<ImageFile>> {
+fn read_image_files(app: &App) -> Receiver<Vec<ImageFile>> {
     let (tx, rc) = mpsc::channel::<Vec<ImageFile>>();
-    let dir = String::from(dir);
+    let working_dir = app.working_dir.clone();
 
     thread::spawn(move || {
         const IMAGE_EXTENSIONS: &[&str] = &[
@@ -402,7 +410,7 @@ fn read_image_files(dir: &str) -> Receiver<Vec<ImageFile>> {
 
         let mut image_files: Vec<String> = vec![];
 
-        let entries = fs::read_dir(&dir).unwrap();
+        let entries = fs::read_dir(&working_dir).unwrap();
 
         for entry in entries.flatten() {
             let path = entry.path();
@@ -427,9 +435,9 @@ fn read_image_files(dir: &str) -> Receiver<Vec<ImageFile>> {
         let mut images: Vec<ImageFile> = vec![];
 
         for image_file in image_files {
-            let full_path = format!("{dir}/{image_file}");
+            let full_path = working_dir.join(image_file.clone());
 
-            let Ok(image) = ImageReader::open(full_path) else { continue; };
+            let Ok(image) = ImageReader::open(full_path.clone()) else { continue; };
             let Ok(image) = image.with_guessed_format() else { continue; };
             let Some(image_format) = image.format() else { continue; };
             let Ok((width, height)) = image.into_dimensions() else { continue; };
@@ -444,8 +452,8 @@ fn read_image_files(dir: &str) -> Receiver<Vec<ImageFile>> {
             };
 
             images.push(ImageFile {
-                file_name:
-                image_file,
+                file_name: image_file,
+                full_path: full_path,
                 width: width,
                 height: height,
                 format: format,

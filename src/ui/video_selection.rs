@@ -61,7 +61,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
 
             let variable_flag = if v.metadata.is_variable_frame_rate { " - (VRF)" } else { "" };
             
-            ListItem::new(format!("{marker} {} - {duration}{variable_flag}", v.file_name)).style(style)
+            ListItem::new(format!("{marker} {} - {duration}{variable_flag}", v.metadata.file_name)).style(style)
         })
         .collect::<Vec<ListItem>>();
 

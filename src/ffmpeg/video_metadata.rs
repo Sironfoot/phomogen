@@ -1,10 +1,11 @@
-use std::{collections::HashMap, path::Path, process::{Command, Stdio}, str::FromStr, time::Duration};
+use std::{collections::HashMap, path::{Path, PathBuf}, process::{Command, Stdio}, str::FromStr, time::Duration};
 use anyhow::{Context, Result};
 
 use crate::ffmpeg::{AspectRatio, VideoCodec};
 
 pub struct VideoMetadata {
     pub file_name: String,
+    pub full_path: PathBuf,
 
     pub width: u32,
     pub height: u32,
@@ -23,17 +24,11 @@ pub struct VideoMetadata {
 }
 
 impl VideoMetadata {
-    pub fn extract_from(video_path: &str) -> Result<Self> {
+    pub fn extract_from(video_path: &Path) -> Result<Self> {
         let file_exists = std::fs::exists(video_path)?;
         if !file_exists {
-            return Err(anyhow::format_err!("`{video_path}` does not exist"));
+            return Err(anyhow::format_err!("`{}` does not exist", video_path.display()));
         }
-
-        let path = Path::new(video_path);
-        let file_name = path.file_name()
-            .with_context(|| format!("can't extract a file name from `{video_path}`"))?
-            .display()
-            .to_string();
 
         let meta_ouput = Command::new("ffprobe")
             .args([
@@ -41,18 +36,23 @@ impl VideoMetadata {
                 "-select_streams", "v:0",
                 "-show_entries", "stream=width,height,r_frame_rate,avg_frame_rate,nb_frames,bit_rate,codec_name:format=size",
                 "-of", "default=noprint_wrappers=1",
-                video_path,
             ])
+            .arg(video_path)
             .stdout(Stdio::piped())
             .output()?;
 
         let output = String::from_utf8(meta_ouput.stdout)?;
-        let video_metadata = Self::from_stdout(&file_name, &output)?;
+        let video_metadata = Self::from_stdout(video_path, &output)?;
 
         Ok(video_metadata)
     }
 
-    fn from_stdout(file_name: &str, stdout: &str) -> Result<Self> {
+    fn from_stdout(video_path: &Path, stdout: &str) -> Result<Self> {
+        let file_name = video_path.file_name()
+            .with_context(|| format!("can't extract a file name from `{}`", video_path.display()))?
+            .display()
+            .to_string();
+
         let mut meta_items: HashMap<String, String> = HashMap::new();
         
         let items: Vec<&str> = stdout.split("\n").collect();
@@ -97,6 +97,7 @@ impl VideoMetadata {
         
         Ok(Self {
             file_name: String::from(file_name),
+            full_path: PathBuf::from(video_path),
             width,
             height,
             aspect_ratio,
@@ -141,6 +142,7 @@ mod tests {
     use super::*;
     use indoc::indoc;
 
+    const DIR: &str = "my_dir/sub_dir/";
     const FILE_NAME: &str = "my_video.mp4";
 
     #[test]
@@ -156,7 +158,9 @@ mod tests {
             size=20633398382
         "};
 
-        let metadata = VideoMetadata::from_stdout(FILE_NAME, ffprobe_output)
+        let path = PathBuf::from(DIR).join(FILE_NAME);
+
+        let metadata = VideoMetadata::from_stdout(&path, ffprobe_output)
             .expect("should not throw error");
 
         assert_eq!(metadata.file_name, FILE_NAME);
@@ -188,7 +192,9 @@ mod tests {
             size=709694454
         "};
 
-        let metadata = VideoMetadata::from_stdout(FILE_NAME, ffprobe_output)
+        let path = PathBuf::from(DIR).join(FILE_NAME);
+
+        let metadata = VideoMetadata::from_stdout(&path, ffprobe_output)
             .expect("should not throw error");
 
         assert_eq!(metadata.file_name, FILE_NAME);

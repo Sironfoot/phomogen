@@ -1,16 +1,19 @@
-use std::{ops::Add, time::Duration};
+use std::{ops::Add, path::PathBuf, time::Duration};
 
 use image::DynamicImage;
 
-use crate::ffmpeg::VideoMetadata;
+use crate::ffmpeg::{VideoMetadata, color_extractor::ColorExtractionAlgorithm};
 
 pub struct App {
     pub stage: AppStage,
+
     pub system_info: SystemInfo,
-    pub working_dir: String,
+    pub working_dir: PathBuf,
+    pub database_dir: PathBuf,
 
     pub current_video_index: u32,
     pub videos: Vec<VideoFile>,
+    pub color_extraction_algorithm: ColorExtractionAlgorithm,
 
     pub current_image_index: u32,
     pub images: Vec<ImageFile>,
@@ -27,13 +30,13 @@ pub struct SystemInfo {
 }
 
 pub struct VideoFile {
-    pub file_name: String,
     pub metadata: VideoMetadata,
     pub is_selected: bool,
 }
 
 pub struct ImageFile {
     pub file_name: String,
+    pub full_path: PathBuf,
     pub width: u32,
     pub height: u32,
     pub format: ImageType,
@@ -124,12 +127,17 @@ pub enum ImageType {
 
 impl App {
     pub fn new(wk_dir: &str, sys_info: SystemInfo) -> App {
+        let working_dir = PathBuf::from(wk_dir);
+        let database_dir = working_dir.join("/pmg_data");
+
         App {
             stage: AppStage::Initial,
             system_info: sys_info,
-            working_dir: String::from(wk_dir),
+            working_dir: working_dir,
+            database_dir: database_dir,
             current_video_index: 0,
             videos: vec![],
+            color_extraction_algorithm: ColorExtractionAlgorithm::PixelArrayTraversal,
             current_image_index: 0,
             images: vec![],
             video_indexing_report: None,

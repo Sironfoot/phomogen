@@ -7,14 +7,25 @@ pub use summed_table::SummedAreaTable;
 pub mod pixel_array;
 pub use pixel_array::PixelArray;
 
-use std::{fs::File, io::{BufWriter, Read}, process::{Command, Stdio}, sync::mpsc, time::Instant};
-use anyhow::Result;
+use std::{
+    cmp,
+    fs::File,
+    io::{BufWriter, Read},
+    path::Path,
+    process::{Command, Stdio},
+    sync::mpsc,
+    time::Instant
+};
 use std::io::Write as IoWrite;
+use anyhow::Result;
 
 use crate::ffmpeg::VideoMetadata;
 use crate::ffmpeg::crops::CropSetting;
 
 const BYTES_PER_PIXEL: u32 = 3;
+const DEFAULT_RESIZE_WIDTH: u32 = 1920;
+const SMALLEST_RESIZED_WIDTH:u32 = 640;
+const DEFAULT_MAX_FFMPEG_THREADS: u32 = 4;
 
 #[derive(PartialEq, Debug)]
 pub enum ColorExtractionAlgorithm {
@@ -55,8 +66,7 @@ pub struct ColorExtractor {
     core_id: u32,
     data_file: BufWriter<File>,
 
-    video_meta: VideoMetadata,
-    video_path: String,
+    video: VideoMetadata,
     max_ffmpeg_threads: u32,
     resize_width: u32,
 
@@ -71,29 +81,30 @@ pub struct ColorExtractor {
 
 impl ColorExtractor {
     pub fn init(
-        video_meta: VideoMetadata,
-        video_path: String,
         core_id: u32,
+        video: VideoMetadata,
         start_frame_index: u64,
         end_frame_index: u64,
         tiles_x: u32,
         tiles_y: u32,
-        data_file_path: String) -> Result<ColorExtractor> {
+        data_file_path: &Path) -> Result<ColorExtractor> {
 
-        if video_meta.is_variable_frame_rate {
+        if video.is_variable_frame_rate {
             return Err(anyhow::format_err!("variable frame rate videos not supported"));
         }
 
         let file = File::create(data_file_path)?;
         let data_file = BufWriter::new(file);
 
+        let resize_width = cmp::min(DEFAULT_RESIZE_WIDTH, video.width);
+        let max_ffmpeg_threads = DEFAULT_MAX_FFMPEG_THREADS;
+
         Ok(ColorExtractor {
             core_id,
             data_file,
-            video_meta: video_meta,
-            video_path,
-            max_ffmpeg_threads: 4,
-            resize_width: 1920,
+            video,
+            max_ffmpeg_threads,
+            resize_width,
             start_frame_index,
             end_frame_index,
             tiles_x,
@@ -103,16 +114,14 @@ impl ColorExtractor {
     }
 
     pub fn set_max_threads(&mut self, num: u32) -> &mut Self {
-        let num = if num == 0 { 1 } else { num };
-
-        self.max_ffmpeg_threads = num;
+        self.max_ffmpeg_threads = cmp::max(1, num);
         return self;
     }
 
     pub fn set_resize_width(&mut self, width: u32) -> &mut Self {
-        let width = if width < 640 { 640 } else { width };
+        let width = cmp::max(width, SMALLEST_RESIZED_WIDTH);
 
-        self.resize_width = width;
+        self.resize_width = cmp::min(width, self.video.width);
         return self;
     }
 
@@ -123,18 +132,18 @@ impl ColorExtractor {
 
     pub fn run(&mut self, tx: mpsc::Sender<ColorExtractionProgress>) -> Result<()> {
         let frame_width = self.resize_width;
-        let frame_height = (frame_width as f64 / self.video_meta.aspect_ratio.ratio()).round() as u32;
+        let frame_height = (frame_width as f64 / self.video.aspect_ratio.ratio()).round() as u32;
         
         let frame_crops = CropSetting::all_crops(frame_width, frame_height, self.tiles_x, self.tiles_y)?;
         
-        let seconds_to_target_frame = self.start_frame_index as f64 / self.video_meta.frame_rate;
+        let seconds_to_target_frame = self.start_frame_index as f64 / self.video.frame_rate;
 
         let mut child = Command::new("ffmpeg")
             .args([
                 "-threads", &format!("{}", self.max_ffmpeg_threads),
                 "-ss", &format!("{seconds_to_target_frame}"),
-                "-i", &self.video_path,
-
+                "-i", ]).args(&self.video.full_path)
+            .args([
                 "-vf", &format!("scale={}:-2:flags=area", self.resize_width),
 
                 // No audio/subtitles/data output
@@ -198,7 +207,7 @@ impl ColorExtractor {
 
                     if current_frame_index % output_frame_interval == 0 {
                         let total_frames_processed = current_frame_index - self.start_frame_index;
-                        let percentage_complete = (total_frames_processed as f64 / self.video_meta.frame_rate as f64) * 100.0;
+                        let percentage_complete = (total_frames_processed as f64 / self.video.frame_rate as f64) * 100.0;
 
                         let average_elapsed = average_timer.elapsed().as_secs_f64();
                         let average_fps = total_frames_processed as f64 / average_elapsed;
