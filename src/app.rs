@@ -20,8 +20,6 @@ pub struct App {
 
     pub current_image_index: u32,
     pub images: Vec<ImageFile>,
-    
-    pub video_indexing_report: Vec<VideoIndexingReport>,
 }
 
 pub struct SystemInfo {
@@ -36,6 +34,19 @@ pub struct VideoFile {
     pub metadata: VideoMetadata,
     pub is_chosen: bool,
     pub database_path: Option<PathBuf>,
+
+    pub indexing_report: Option<VideoIndexingReport>,
+}
+
+impl VideoFile {
+    pub fn new(video: VideoMetadata) -> VideoFile {
+        VideoFile {
+            metadata: video,
+            is_chosen: false,
+            database_path: None,
+            indexing_report: None,
+        }
+    }
 }
 
 pub struct ImageFile {
@@ -51,14 +62,16 @@ pub struct ImageFile {
 #[derive(Clone, Debug)]
 pub struct VideoIndexingReport {
     pub file_name: String,
+    pub total_frames: u64,
     pub cores: Vec<VideoIndexCore>,
     pub status: VideoIndexStatus,
 }
 
 impl VideoIndexingReport {
-    pub fn new(file_name: &str) -> VideoIndexingReport {
+    pub fn new(file_name: &str, total_frames: u64) -> VideoIndexingReport {
         VideoIndexingReport {
             file_name: String::from(file_name),
+            total_frames,
             cores: vec![],
             status: VideoIndexStatus::NotStarted,
         }
@@ -68,19 +81,13 @@ impl VideoIndexingReport {
         self.cores.iter().map(|c| c.frames_processed).sum()
     }
 
-    pub fn total_frames(&self) -> u64 {
-        self.cores.iter().map(|c| c.total_frames).sum()
-    }
-
     pub fn percentage_complete(&self) -> f64 {
-        let frames_processed = self.frames_processed();
-        let total_frames = self.total_frames();
-
-        if total_frames == 0 {
+        if self.total_frames == 0 {
             return 0.0;
         }
 
-        (100.0 / total_frames as f64) * frames_processed as f64
+        let frames_processed = self.frames_processed();
+        (100.0 / self.total_frames as f64) * frames_processed as f64
     }
 
     pub fn average_fps(&self) -> f64 {
@@ -154,7 +161,6 @@ impl App {
             color_extraction_algorithm: ColorExtractionAlgorithm::PixelArrayTraversal,
             current_image_index: 0,
             images: vec![],
-            video_indexing_report: vec![],
         }
     }
 }
@@ -180,14 +186,24 @@ impl App {
     }
 
     pub fn total_video_indexing_progress(&self) -> f64 {
-        if self.video_indexing_report.len() > 0 {
-            let frames_processed: u64 = self.video_indexing_report.iter().map(|r| r.frames_processed()).sum();
-            let total_frames: u64 = self.video_indexing_report.iter().map(|r| r.total_frames()).sum();
+        let indexing_reports: Vec<_> = self.videos.iter()
+            .filter(|v| v.indexing_report.is_some())
+            .map(|v| v.indexing_report.as_ref().unwrap())
+            .collect();
 
-            return (100.0 / total_frames as f64) * frames_processed as f64;
+        let frames_processed: u64 = indexing_reports.iter()
+            .map(|r| r.frames_processed())
+            .sum();
+
+        let total_frames: u64 = indexing_reports.iter()
+            .map(|r| r.total_frames)
+            .sum();
+
+        if total_frames == 0 {
+            return 0.0
         }
 
-        0.0
+        (100.0 / total_frames as f64) * frames_processed as f64
     }
 }
 

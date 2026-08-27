@@ -137,6 +137,7 @@ where
                         },
                         None => {
                             app.stage = AppStage::LoadMosaicDatabase;
+                            should_render = true;
                         }
                     }
                 }
@@ -145,30 +146,27 @@ where
                     let reports: Vec<VideoIndexingReport> = rc.try_iter().collect();
 
                     for report in reports {
-                        let report_index = app.video_indexing_report.iter()
-                            .position(|r| r.file_name == report.file_name);
+                        let video = app.videos.iter_mut()
+                            .find(|v| v.metadata.file_name == report.file_name);
 
-                        if let Some(i) = report_index {
+                        if let Some(video) = video {
                             let is_finished = report.status == VideoIndexStatus::Finished;
+                            video.indexing_report = Some(report);
 
                             if is_finished {
-                                let video = app.videos.iter_mut()
-                                    .find(|v| v.metadata.file_name == report.file_name);
-
-                                if let Some(video) = video {
-                                    let database_file_name = format!("{}.pmgd", video.metadata.file_name);
-                                    video.database_path = Some(app.database_dir.join(&database_file_name));
-                                }
+                                let database_file_name = format!("{}.pmgd", video.metadata.file_name);
+                                video.database_path = Some(app.database_dir.join(&database_file_name));
 
                                 color_extractor_receiver = None;
                             }
-
-                            app.video_indexing_report[i] = report;
                         }
 
                         should_render = true;
                     }
                 }
+            },
+            AppStage::LoadMosaicDatabase => {
+                // TODO: implement
             },
             AppStage::ImageSelect => {
                 if images_receiver.is_none() {
@@ -269,14 +267,14 @@ where
                                     .collect();
 
                                 if chosen_videos.len() > 0 {
-                                    let require_database: Vec<&VideoFile> = app.videos.iter()
+                                    let require_database: Vec<_> = app.videos.iter_mut()
                                         .filter(|v| v.is_chosen && v.database_path.is_none())
                                         .collect();
 
                                     if require_database.len() > 0 {
                                         for video in require_database {
-                                            let report = VideoIndexingReport::new(&video.metadata.file_name);
-                                            app.video_indexing_report.push(report);
+                                            let report = VideoIndexingReport::new(&video.metadata.file_name, video.metadata.total_frames);
+                                            video.indexing_report = Some(report);
                                         }
 
                                         app.stage = AppStage::GenerateMosaicDatabase;
@@ -287,6 +285,15 @@ where
                                     
                                     should_render = true;
                                 }
+                            }
+                            _ => {}
+                        }
+                    },
+                    AppStage::LoadMosaicDatabase => {
+                        match key.code {
+                            KeyCode::Enter => {
+                                app.stage = AppStage::ImageSelect;
+                                should_render = true;
                             }
                             _ => {}
                         }
@@ -388,7 +395,7 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
             fs::create_dir(&database_dir).unwrap();
         }
 
-        let mut report = VideoIndexingReport::new(&video.file_name);
+        let mut report = VideoIndexingReport::new(&video.file_name, video.total_frames);
         report.status = VideoIndexStatus::Initialising;
 
         // number of FFMPEG workers is half number of CPU cores with
@@ -551,6 +558,7 @@ fn read_video_files(app: &App) -> Receiver<Vec<VideoFile>> {
                     metadata: meta_data,
                     is_chosen: false,
                     database_path: None,
+                    indexing_report: None,
                 };
 
                 videos.push(video);

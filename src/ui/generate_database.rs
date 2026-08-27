@@ -19,21 +19,33 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     let inner = block.inner(main);
     frame.render_widget(block, main);
 
-    let mut current_video = app.video_indexing_report.iter()
-        .find(|r| r.status == VideoIndexStatus::Running);
+    let videos_to_index: Vec<_> = app.videos.iter()
+        .filter(|v| v.indexing_report.is_some())
+        .collect();
 
-    if current_video.is_none() {
-        current_video = app.video_indexing_report.first();
-    }
+    let current_video = videos_to_index.iter().enumerate()
+        .find(|(_, v)| v.indexing_report.as_ref().is_some_and(|r| r.status == VideoIndexStatus::Running));
 
-    let Some(current_video) = current_video else {
-        render_ffmpeg_initialising(frame, inner);
-        return;
+    let (index, current_video) = match current_video {
+        Some(video) => video,
+        None => {
+            render_ffmpeg_initialising(frame, inner);
+            return;
+        }
     };
 
-    let video_position = app.video_indexing_report.iter()
-        .position(|r| r.file_name == current_video.file_name)
-        .unwrap_or(0) + 1;
+    let video_position = index + 1;
+    let num_videos_indexing = app.videos.iter()
+        .filter(|v| v.indexing_report.is_some())
+        .count();
+
+    let report = match &current_video.indexing_report {
+        Some(report) => report,
+        None => {
+            render_ffmpeg_initialising(frame, inner);
+            return;
+        }
+    };
 
     let [
         header_section,
@@ -47,7 +59,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         .constraints([
             Constraint::Length(1),
             Constraint::Length(2),
-            Constraint::Length((current_video.cores.len() as u16) + 1),
+            Constraint::Length((report.cores.len() as u16) + 1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(3),
@@ -66,7 +78,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
 
     // video info
     let video_info = Paragraph::new(
-        Text::styled(format!("Indexing '{}' ({video_position} of {})", current_video.file_name, app.video_indexing_report.len()), Style::default().fg(Color::Green))
+        Text::styled(format!("Indexing '{}' ({video_position} of {num_videos_indexing})", current_video.metadata.file_name), Style::default().fg(Color::Green))
     )
     .wrap(Wrap::default())
     .alignment(ratatui::layout::HorizontalAlignment::Center);
@@ -75,7 +87,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
 
     // progress
     let mut output = String::new();
-    for core in &current_video.cores {
+    for core in &report.cores {
         let core_message = match core.status {
             VideoIndexStatus::Initialising => {
                 format!("* Core {}: Intialising...\n", core.core_id)
@@ -106,11 +118,11 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         .style(Modifier::BOLD)
         .gauge_style(Style::new().blue().on_black())
         .label(format!("Total: {} / {} frames ({:.2}%) - {:.2} fps",
-            current_video.frames_processed().to_formatted_string(&Locale::en),
-            current_video.total_frames().to_formatted_string(&Locale::en),
-            current_video.percentage_complete(),
-            current_video.average_fps()))
-        .percent(current_video.percentage_complete().round() as u16);
+            report.frames_processed().to_formatted_string(&Locale::en),
+            report.total_frames.to_formatted_string(&Locale::en),
+            report.percentage_complete(),
+            report.average_fps()))
+        .percent(report.percentage_complete().round() as u16);
 
     frame.render_widget(video_progress_guage, total_section);
 
