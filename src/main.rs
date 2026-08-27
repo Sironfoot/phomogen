@@ -117,47 +117,19 @@ where
                     app.videos = videos;
 
                     if app.videos.len() > 0 {
-                        app.videos[0].is_selected = true;
+                        app.videos[0].is_chosen = true;
                     }
 
                     app.stage = AppStage::VideoSelect;
                     should_render = true;
                 }
             },
-            AppStage::ImageSelect => {
-                if images_receiver.is_none() {
-                    images_receiver = Some(read_image_files(&app));
-                }
-
-                if let Some(rc) = &images_receiver {
-                    if let Ok(images) = rc.try_recv() {
-                        app.images = images;
-                        should_render = true;
-
-                        if app.images.len() > 0 {
-                            if let Some(selected_image) = app.images.get_mut(0) {
-                                selected_image.is_selected = true;
-
-                                if let Ok(image) = image::open(&selected_image.full_path) {
-                                    let image = if image.width() > 320 {
-                                        let ratio = image.height() as f64 / image.width() as f64;
-                                        let height = f64::round(320 as f64 * ratio) as u32;
-                                        image.resize(320, height, ratatui_image::FilterType::Nearest)
-                                    }
-                                    else {
-                                        image
-                                    };
-
-                                    selected_image.preview = Some(image);
-                                }
-                            }
-                        }
-                    }
-                }
+            AppStage::VideoSelect => {
+                // TODO: hot reloadding of video list
             },
             AppStage::GenerateMosaicDatabase => {
                 if color_extractor_receiver.is_none() {
-                    let next_video = app.videos.iter().find(|v| v.is_selected);
+                    let next_video = app.videos.iter().find(|v| v.is_chosen && v.database_path.is_none());
 
                     match next_video {
                         Some(video) => {
@@ -173,12 +145,59 @@ where
                     let reports: Vec<VideoIndexingReport> = rc.try_iter().collect();
 
                     for report in reports {
-                        let mut reports: Vec<VideoIndexingReport> = vec![];
-                        reports.push(report);
+                        let report_index = app.video_indexing_report.iter()
+                            .position(|r| r.file_name == report.file_name);
 
-                        app.video_indexing_report = Some(reports);
+                        if let Some(i) = report_index {
+                            let is_finished = report.status == VideoIndexStatus::Finished;
+
+                            if is_finished {
+                                let video = app.videos.iter_mut()
+                                    .find(|v| v.metadata.file_name == report.file_name);
+
+                                if let Some(video) = video {
+                                    let database_file_name = format!("{}.pmgd", video.metadata.file_name);
+                                    video.database_path = Some(app.database_dir.join(&database_file_name));
+                                }
+
+                                color_extractor_receiver = None;
+                            }
+
+                            app.video_indexing_report[i] = report;
+                        }
 
                         should_render = true;
+                    }
+                }
+            },
+            AppStage::ImageSelect => {
+                if images_receiver.is_none() {
+                    images_receiver = Some(read_image_files(&app));
+                }
+
+                if let Some(rc) = &images_receiver {
+                    if let Ok(images) = rc.try_recv() {
+                        app.images = images;
+                        should_render = true;
+
+                        if app.images.len() > 0 {
+                            if let Some(selected_image) = app.images.get_mut(0) {
+                                selected_image.is_chosen = true;
+
+                                if let Ok(image) = image::open(&selected_image.full_path) {
+                                    let image = if image.width() > 320 {
+                                        let ratio = image.height() as f64 / image.width() as f64;
+                                        let height = f64::round(320 as f64 * ratio) as u32;
+                                        image.resize(320, height, ratatui_image::FilterType::Nearest)
+                                    }
+                                    else {
+                                        image
+                                    };
+
+                                    selected_image.preview = Some(image);
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -234,22 +253,40 @@ where
                             KeyCode::Char(' ') => {
                                 let video_index = app.current_video_index;
 
-                                app.videos[video_index as usize].is_selected =
-                                    !app.videos[video_index as usize].is_selected;
+                                app.videos[video_index as usize].is_chosen =
+                                    !app.videos[video_index as usize].is_chosen;
 
                                 should_render = true;
                             },
                             KeyCode::Char('a') => {
                                 for video in app.videos.iter_mut() {
-                                    video.is_selected = true;
+                                    video.is_chosen = true;
                                 }
                             },
                             KeyCode::Enter => {
-                                if app.videos.iter().any(|v| v.is_selected) {
-                                    app.stage = AppStage::ImageSelect;
-                                }
+                                let chosen_videos: Vec<&VideoFile> = app.videos.iter()
+                                    .filter(|v| v.is_chosen)
+                                    .collect();
 
-                                should_render = true;
+                                if chosen_videos.len() > 0 {
+                                    let require_database: Vec<&VideoFile> = app.videos.iter()
+                                        .filter(|v| v.is_chosen && v.database_path.is_none())
+                                        .collect();
+
+                                    if require_database.len() > 0 {
+                                        for video in require_database {
+                                            let report = VideoIndexingReport::new(&video.metadata.file_name);
+                                            app.video_indexing_report.push(report);
+                                        }
+
+                                        app.stage = AppStage::GenerateMosaicDatabase;
+                                    }
+                                    else {
+                                        app.stage = AppStage::LoadMosaicDatabase;
+                                    }
+                                    
+                                    should_render = true;
+                                }
                             }
                             _ => {}
                         }
@@ -286,12 +323,12 @@ where
                                 let image_index = app.current_image_index;
 
                                 for image in app.images.iter_mut() {
-                                    image.is_selected = false;
+                                    image.is_chosen = false;
                                 }
 
                                 let selected_image = app.images.get_mut(image_index as usize);
                                 if let Some(selected_image) = selected_image {
-                                    selected_image.is_selected = true;
+                                    selected_image.is_chosen = true;
 
                                     if selected_image.preview.is_none() {
                                         let image_path = app.working_dir.join(selected_image.file_name.clone());
@@ -314,7 +351,7 @@ where
                                 should_render = true;
                             },
                             KeyCode::Enter => {
-                                if app.images.iter().any(|i| i.is_selected) {
+                                if app.images.iter().any(|i| i.is_chosen) {
                                     app.stage = AppStage::GenerateMosaicDatabase;
                                 }
                                 should_render = true;
@@ -512,7 +549,8 @@ fn read_video_files(app: &App) -> Receiver<Vec<VideoFile>> {
             if let Ok(meta_data) = meta_data {
                 let video = VideoFile {
                     metadata: meta_data,
-                    is_selected: false,
+                    is_chosen: false,
+                    database_path: None,
                 };
 
                 videos.push(video);
@@ -584,7 +622,7 @@ fn read_image_files(app: &App) -> Receiver<Vec<ImageFile>> {
                 height: height,
                 format: format,
                 preview: None,
-                is_selected: false,
+                is_chosen: false,
             });
             
         }

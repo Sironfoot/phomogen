@@ -21,7 +21,7 @@ pub struct App {
     pub current_image_index: u32,
     pub images: Vec<ImageFile>,
     
-    pub video_indexing_report: Option<Vec<VideoIndexingReport>>,
+    pub video_indexing_report: Vec<VideoIndexingReport>,
 }
 
 pub struct SystemInfo {
@@ -34,7 +34,8 @@ pub struct SystemInfo {
 
 pub struct VideoFile {
     pub metadata: VideoMetadata,
-    pub is_selected: bool,
+    pub is_chosen: bool,
+    pub database_path: Option<PathBuf>,
 }
 
 pub struct ImageFile {
@@ -44,7 +45,7 @@ pub struct ImageFile {
     pub height: u32,
     pub format: ImageType,
     pub preview: Option<DynamicImage>, 
-    pub is_selected: bool,
+    pub is_chosen: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -74,6 +75,10 @@ impl VideoIndexingReport {
     pub fn percentage_complete(&self) -> f64 {
         let frames_processed = self.frames_processed();
         let total_frames = self.total_frames();
+
+        if total_frames == 0 {
+            return 0.0;
+        }
 
         (100.0 / total_frames as f64) * frames_processed as f64
     }
@@ -149,7 +154,7 @@ impl App {
             color_extraction_algorithm: ColorExtractionAlgorithm::PixelArrayTraversal,
             current_image_index: 0,
             images: vec![],
-            video_indexing_report: None,
+            video_indexing_report: vec![],
         }
     }
 }
@@ -157,7 +162,7 @@ impl App {
 impl App {
     pub fn total_selected_video_duration(&self) -> Duration {
         let total = self.videos.iter()
-            .filter(|v| v.is_selected)
+            .filter(|v| v.is_chosen)
             .map(|v| v.metadata.duration)
             .reduce(|accu, item| accu.add(item));
 
@@ -169,15 +174,15 @@ impl App {
 
     pub fn total_selected_video_frames(&self) -> u64 {
         self.videos.iter()
-            .filter(|v| v.is_selected)
+            .filter(|v| v.is_chosen)
             .map(|v| v.metadata.total_frames)
             .sum()
     }
 
     pub fn total_video_indexing_progress(&self) -> f64 {
-        if let Some(reports) = &self.video_indexing_report {
-            let frames_processed: u64 = reports.iter().map(|r| r.frames_processed()).sum();
-            let total_frames: u64 = reports.iter().map(|r| r.total_frames()).sum();
+        if self.video_indexing_report.len() > 0 {
+            let frames_processed: u64 = self.video_indexing_report.iter().map(|r| r.frames_processed()).sum();
+            let total_frames: u64 = self.video_indexing_report.iter().map(|r| r.total_frames()).sum();
 
             return (100.0 / total_frames as f64) * frames_processed as f64;
         }
@@ -190,8 +195,8 @@ impl App {
 pub enum AppStage {
     Initial,
     VideoSelect,
-    ImageSelect,
     GenerateMosaicDatabase,
+    ImageSelect,
     LoadMosaicDatabase,
     Quitting,
 }

@@ -46,8 +46,8 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     // list
     let list_items = app.images.iter()
         .map(|i| {
-            let marker = if i.is_selected { "[X]" } else { "[ ]" };
-            let style_color = if i.is_selected { Color::White } else { Color::DarkGray };
+            let marker = if i.is_chosen { "[X]" } else { "[ ]" };
+            let style_color = if i.is_chosen { Color::White } else { Color::DarkGray };
             let style = Style::default().fg(style_color);
 
             ListItem::new(format!("{marker} {}", i.file_name)).style(style)
@@ -77,7 +77,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     frame.render_widget(instructions, instructions_section);
 
     // image preview
-    if let Some(selected_image) = app.images.iter().find(|i| i.is_selected) {
+    if let Some(selected_image) = app.images.iter().find(|i| i.is_chosen) {
         if let Some(image) = &selected_image.preview {
             let preview_area_width = image_preview_section.width - 2; // add padding to left/right
             let preview_area_height = image_preview_section.height;
@@ -122,7 +122,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     }
 
     // continue message
-    let at_least_one_selected = app.videos.iter().any(|v| v.is_selected);
+    let at_least_one_selected = app.videos.iter().any(|v| v.is_chosen);
     let cont_color = if at_least_one_selected { Color::White } else { Color::DarkGray };
 
     let continue_instructions =  Paragraph::new(

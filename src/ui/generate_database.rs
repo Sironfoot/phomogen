@@ -19,16 +19,11 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     let inner = block.inner(main);
     frame.render_widget(block, main);
 
-    let Some(video_reports) = &app.video_indexing_report else {
-        render_ffmpeg_initialising(frame, inner);
-        return;
-    };
-
-    let mut current_video = video_reports.iter()
+    let mut current_video = app.video_indexing_report.iter()
         .find(|r| r.status == VideoIndexStatus::Running);
 
     if current_video.is_none() {
-        current_video = video_reports.first();
+        current_video = app.video_indexing_report.first();
     }
 
     let Some(current_video) = current_video else {
@@ -36,7 +31,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         return;
     };
 
-    let video_position = video_reports.iter()
+    let video_position = app.video_indexing_report.iter()
         .position(|r| r.file_name == current_video.file_name)
         .unwrap_or(0) + 1;
 
@@ -71,7 +66,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
 
     // video info
     let video_info = Paragraph::new(
-        Text::styled(format!("Indexing '{}' ({video_position} of {})", current_video.file_name, video_reports.len()), Style::default().fg(Color::Green))
+        Text::styled(format!("Indexing '{}' ({video_position} of {})", current_video.file_name, app.video_indexing_report.len()), Style::default().fg(Color::Green))
     )
     .wrap(Wrap::default())
     .alignment(ratatui::layout::HorizontalAlignment::Center);

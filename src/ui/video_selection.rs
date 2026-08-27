@@ -53,8 +53,8 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     // list
     let list_items = app.videos.iter()
         .map(|v| {
-            let marker = if v.is_selected { "[X]" } else { "[ ]" };
-            let style_color = if v.is_selected { Color::White } else { Color::DarkGray };
+            let marker = if v.is_chosen { "[X]" } else { "[ ]" };
+            let style_color = if v.is_chosen { Color::White } else { Color::DarkGray };
             let style = Style::default().fg(style_color);
 
             let duration = format_duration(v.metadata.duration);
@@ -109,7 +109,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     frame.render_widget(status_info, length_section);
 
     let num_chosen_with_vfr = app.videos.iter()
-        .filter(|v| v.is_selected && v.metadata.is_variable_frame_rate)
+        .filter(|v| v.is_chosen && v.metadata.is_variable_frame_rate)
         .count();
 
     if num_chosen_with_vfr > 0 {
@@ -126,7 +126,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     }
 
     // continue message
-    let at_least_one_selected = app.videos.iter().any(|v| v.is_selected);
+    let at_least_one_selected = app.videos.iter().any(|v| v.is_chosen);
     let cont_color = if at_least_one_selected { Color::White } else { Color::DarkGray };
 
     let continue_instructions =  Paragraph::new(
