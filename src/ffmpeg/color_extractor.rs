@@ -140,6 +140,7 @@ impl ColorExtractor {
 
         let mut child = Command::new("ffmpeg")
             .args([
+                "-hwaccel", "auto", // TODO: need to detect GPU decode is available, fall back to CPU
                 "-threads", &format!("{}", self.max_ffmpeg_threads),
                 "-ss", &format!("{seconds_to_target_frame}"),
                 "-i", ]).arg(&self.video.full_path)
