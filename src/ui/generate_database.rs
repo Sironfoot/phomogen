@@ -10,7 +10,7 @@ use num_format::{Locale, ToFormattedString};
 
 use crate::app::{App, VideoIndexStatus};
 
-pub fn render(frame: &mut Frame, main: Rect, app: &App) {
+pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .padding(Padding::uniform(1))
@@ -93,7 +93,10 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
                 format!("* Core {}: Intialising...\n", core.instance_id)
             }
             _ => {
-                format!("* Core {}: {} / {} frames ({:.2}%) - {:.2} fps\n",
+                let memory_usage = core.memory_usage;
+                let memory_mb = (memory_usage as f64 / 1000.0 / 1000.0).round() as u32;
+
+                format!("* Core {}: {} / {} frames ({:.2}%) - {:.2} fps - ({memory_mb} MB)\n",
                     core.instance_id,
                     core.frames_processed.to_formatted_string(&Locale::en),
                     core.total_frames.to_formatted_string(&Locale::en),
@@ -114,10 +117,25 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     frame.render_widget(progress_report, progress_section);
 
     // total
+    let total_ffmpeg_memory_usage = report.total_memory_usage();
+    let process_memory_usage = app.system_info.process_memory_usage();
+    let total_memory_usage = total_ffmpeg_memory_usage + process_memory_usage;
+
+    let total_memory_usage_mb = (total_memory_usage as f64 / 1000.0 / 1000.0).round() as u32;
+
+    let memory_output = if total_memory_usage_mb > 999 {
+        let in_gb = total_memory_usage_mb as f64 / 1000.0;
+        let in_gb = (in_gb * 10.0).round() / 10.0;
+        format!("{in_gb} GB")
+    }
+    else {
+        format!("{total_memory_usage_mb} MB")
+    };
+
     let video_progress_guage = Gauge::default()
         .style(Modifier::BOLD)
         .gauge_style(Style::new().blue().on_black())
-        .label(format!("Total: {} / {} frames ({:.2}%) - {:.2} fps",
+        .label(format!("Total: {} / {} frames ({:.2}%) - {:.2} fps - (RAM: {memory_output})",
             report.frames_processed().to_formatted_string(&Locale::en),
             report.total_frames.to_formatted_string(&Locale::en),
             report.percentage_complete(),

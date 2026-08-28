@@ -371,8 +371,8 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
 
         // number of FFMPEG workers is half number of CPU cores with
         // each FFMPEG instance using 2 cores eeach
-        let num_workers = (max_allowed_cores as f64 / 2.0).floor() as usize;
-        let ffmpeg_threads: u32 = 2;
+        let num_workers = (max_allowed_cores as f64 / 1.0).floor() as usize;
+        let ffmpeg_threads: u32 = 1;
 
         let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(num_workers);
         let (tx, rc) = mpsc::channel::<ColorExtractionProgress>();
@@ -442,6 +442,7 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
                 
                 core.frames_processed = extraction_progress.total_frames_processed;
                 core.average_fps = extraction_progress.average_fps;
+                core.memory_usage = extraction_progress.memory_usage;
 
                 core.status = match core.percentage_complete() {
                     100.0 => VideoIndexStatus::Finished,

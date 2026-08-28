@@ -76,6 +76,10 @@ impl VideoIndexingReport {
         self.cores.iter().map(|c| c.frames_processed).sum()
     }
 
+    pub fn total_memory_usage(&self) -> u64 {
+        self.cores.iter().map(|c| c.memory_usage).sum()
+    }
+
     pub fn percentage_complete(&self) -> f64 {
         if self.total_frames == 0 {
             return 0.0;
@@ -96,6 +100,7 @@ pub struct VideoIndexCore {
     pub frames_processed: u64,
     pub total_frames: u64,
     pub average_fps: f64,
+    pub memory_usage: u64,
 
     pub status: VideoIndexStatus,
 }
@@ -107,6 +112,7 @@ impl VideoIndexCore {
             frames_processed: 0,
             total_frames,
             average_fps: 0.0,
+            memory_usage: 0,
             status: VideoIndexStatus::NotStarted,
         }
     }

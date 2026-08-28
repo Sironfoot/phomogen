@@ -19,7 +19,7 @@ use std::{
 use std::io::Write as IoWrite;
 use anyhow::Result;
 
-use crate::ffmpeg::VideoMetadata;
+use crate::{app::SystemInfo, ffmpeg::VideoMetadata};
 use crate::ffmpeg::crops::CropSetting;
 
 const BYTES_PER_PIXEL: u32 = 3;
@@ -60,6 +60,8 @@ pub struct ColorExtractionProgress {
     pub total_frames_processed: u64,
     pub average_fps: f64,
     pub percentage_complete: f64,
+
+    pub memory_usage: u64,
 }
 
 pub struct ColorExtractor {
@@ -162,6 +164,8 @@ impl ColorExtractor {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()?;
+
+        let process_id = child.id();
         
         let frame_size = frame_width * frame_height * BYTES_PER_PIXEL;
 
@@ -200,6 +204,7 @@ impl ColorExtractor {
                             total_frames_processed: total_frames,
                             average_fps: 0.0,
                             percentage_complete: 100.0,
+                            memory_usage: SystemInfo::get_process_memory_usage(process_id).unwrap_or(0),
                         }).unwrap();
 
                         child.kill().unwrap();
@@ -218,6 +223,7 @@ impl ColorExtractor {
                             total_frames_processed: total_frames_processed,
                             average_fps: average_fps,
                             percentage_complete: percentage_complete,
+                            memory_usage: SystemInfo::get_process_memory_usage(process_id).unwrap_or(0),
                         }).unwrap();
                     }
                 },
@@ -227,6 +233,7 @@ impl ColorExtractor {
                         total_frames_processed: total_frames,
                         average_fps: 0.0,
                         percentage_complete: 100.0,
+                        memory_usage: SystemInfo::get_process_memory_usage(process_id).unwrap_or(0),
                     }).unwrap();
                     
                     break;

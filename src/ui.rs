@@ -15,7 +15,7 @@ use ratatui::{
 
 use crate::{app::{App, AppStage}};
 
-pub fn render_ui(frame: &mut Frame, app: &App){
+pub fn render_ui(frame: &mut Frame, app: &mut App){
     // Header
     let chunks = Layout::default()
         .direction(Direction::Vertical)
