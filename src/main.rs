@@ -489,6 +489,7 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
 fn read_video_files(app: &App) -> Receiver<Vec<VideoFile>> {
     let (tx, rc) = mpsc::channel::<Vec<VideoFile>>();
     let working_dir = app.working_dir.clone();
+    let database_dir = app.database_dir.clone();
 
     thread::spawn(move || {
         const VIDEO_EXTENSIONS: &[&str] = &[
@@ -522,14 +523,19 @@ fn read_video_files(app: &App) -> Receiver<Vec<VideoFile>> {
         let mut videos: Vec<VideoFile> = Vec::with_capacity(video_files.len());
 
         for video_file in video_files {
-            let full_path = working_dir.join(video_file);
+            let full_path = working_dir.join(&video_file);
             let meta_data = VideoMetadata::extract_from(&full_path);
+
+            let data_file = format!("{video_file}.pmgd");
+            let full_data_path = database_dir.join(&data_file);
+
+            let data_exists = fs::exists(&full_data_path).unwrap_or(false);
 
             if let Ok(meta_data) = meta_data {
                 let video = VideoFile {
                     metadata: meta_data,
                     is_chosen: false,
-                    database_path: None,
+                    database_path: if data_exists { Some(full_data_path) } else { None },
                     indexing_report: None,
                 };
 

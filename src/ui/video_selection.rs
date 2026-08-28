@@ -35,7 +35,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
             Constraint::Length(1),
             Constraint::Length(list_item_height as u16),
             Constraint::Length(2),
-            Constraint::Length(2),
+            Constraint::Length(3),
             Constraint::Length(1),
         ])
         .spacing(1)
@@ -60,8 +60,9 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
             let duration = format_duration(v.metadata.duration);
 
             let variable_flag = if v.metadata.is_variable_frame_rate { " - (VRF)" } else { "" };
+            let data_exists_flag = if v.database_path.is_some() { "✔" } else { " " };
             
-            ListItem::new(format!("{marker} {} - {duration}{variable_flag}", v.metadata.file_name)).style(style)
+            ListItem::new(format!("{marker} {data_exists_flag} {} - {duration}{variable_flag}{data_exists_flag}", v.metadata.file_name)).style(style)
         })
         .collect::<Vec<ListItem>>();
 
@@ -93,8 +94,9 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     let total_frames = app.total_selected_video_frames().to_formatted_string(&Locale::en);
     let status_text = format!("Total video length: {total_duration} - {total_frames} frames");
 
-    let [length_section, warning_section] =
+    let [length_section, checkmark_section, warning_section] =
         Layout::vertical([
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1)
         ])
@@ -107,6 +109,17 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     .alignment(HorizontalAlignment::Center);
 
     frame.render_widget(status_info, length_section);
+
+    let at_least_one_video_has_database = app.videos.iter().any(|v| v.database_path.is_some());
+    let checkmark_message_color = if at_least_one_video_has_database { Color::White } else { Color::DarkGray };
+
+    let checkmark_info =  Paragraph::new(
+        Text::styled("✔ = Colour index database already generated", Style::default().fg(checkmark_message_color))
+    )
+    .wrap(Wrap::default())
+    .alignment(HorizontalAlignment::Center);
+
+    frame.render_widget(checkmark_info, checkmark_section);
 
     let num_chosen_with_vfr = app.videos.iter()
         .filter(|v| v.is_chosen && v.metadata.is_variable_frame_rate)
