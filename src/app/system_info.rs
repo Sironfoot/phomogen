@@ -1,0 +1,208 @@
+use std::{path::{Path, PathBuf}, time::{Duration, Instant}};
+
+use sysinfo::{Disks, MemoryRefreshKind, Pid, ProcessesToUpdate, System};
+use anyhow::Result;
+
+pub struct SystemInfo {
+    process_id: Pid,
+    disk_mount_point: PathBuf,
+    disks: Disks,
+    system: System,
+
+    drive_refresh_timer: Instant,
+    drive_refresh_interval: Duration,
+
+    available_physical_cores: Option<u32>,
+    max_allowed_cores: u32,
+    total_memory: u64,
+}
+
+const DEFAULT_MAX_CORES: u32 = 4;
+const DRIVE_SPACE_REFRESH_INTERVAL: u64 = 1000; // in ms
+
+impl SystemInfo {
+    pub fn init(working_dir: &Path) -> Result<SystemInfo> {
+        let physical_cores = match System::physical_core_count() {
+            Some(cores) => Some(cores as u32),
+            None => None,
+        };
+
+        let max_allowed_cores = physical_cores.unwrap_or(DEFAULT_MAX_CORES);
+
+        let disks = Disks::new_with_refreshed_list();
+
+        let disk_mount_point = disks
+            .list()
+            .iter()
+            .filter(|disk| working_dir.starts_with(disk.mount_point()))
+            .max_by_key(|disk| disk.mount_point().components().count())
+            .map(|disk| disk.mount_point().to_path_buf());
+
+        let disk_mount_point = match disk_mount_point {
+            Some(path) => path,
+            None => {
+                return Err(anyhow::format_err!("couldn't determine drive for working directory: {}", working_dir.display()));
+            }
+        };
+
+        let process_id = std::process::id();
+        let process_id = Pid::from_u32(process_id);
+
+        let mut system = System::new();
+        let drive_refresh_timer = Instant::now();
+        let drive_refresh_interval = Duration::from_millis(DRIVE_SPACE_REFRESH_INTERVAL);
+
+        system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+        let total_memory = system.total_memory();
+
+        Ok(SystemInfo {
+            process_id,
+            disk_mount_point,
+            disks,
+            system,
+            drive_refresh_timer,
+            drive_refresh_interval,
+
+            available_physical_cores: physical_cores,
+            max_allowed_cores: max_allowed_cores,
+            total_memory: total_memory,
+        })
+    }
+
+    pub fn set_max_allowed_cores(&mut self, cores: u32) {
+        let mut max_cores = cores.max(1); // at least 1
+
+        if let Some(available_physical_cores) = self.available_physical_cores {
+            max_cores = max_cores.min(available_physical_cores);
+        }
+
+        self.max_allowed_cores = max_cores;
+    }
+
+    pub fn max_allowed_cores(&self) -> u32 {
+        self.max_allowed_cores
+    }
+
+    pub fn available_physical_cores(&self) -> Option<u32> {
+        self.available_physical_cores
+    }
+
+    pub fn available_memory(&mut self) -> u64 {
+        self.system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+        self.system.available_memory()
+    }
+
+    pub fn total_memory(&self) -> u64 {
+        self.total_memory
+    }
+
+    pub fn process_memory_usage(&mut self) -> u64 {
+        self.system.refresh_processes(ProcessesToUpdate::Some(&[self.process_id]), true);
+
+        self.system
+            .process(self.process_id)
+            .expect("failed to retrieve current process from sysinfo")
+            .memory()
+    }
+
+    fn get_disk(&mut self) -> Option<&mut sysinfo::Disk> {
+        let disk: &mut sysinfo::Disk = self
+            .disks
+            .list_mut()
+            .iter_mut()
+            .find(|disk| disk.mount_point() == &self.disk_mount_point)?;
+
+        if self.drive_refresh_timer.elapsed() >= self.drive_refresh_interval {
+            disk.refresh();
+            self.drive_refresh_timer = Instant::now();
+        }
+
+        Some(disk)
+    }
+
+    pub fn total_drive_space(&mut self) -> Option<u64> {
+        let disk = self.get_disk()?;
+        Some(disk.total_space())
+    }
+
+    pub fn free_drive_space(&mut self) -> Option<u64> {
+        let disk = self.get_disk()?;
+        Some(disk.available_space())
+    }
+
+    pub fn get_process_memory_usage(process_id: u32) -> Option<u64> {
+        let process_id = Pid::from_u32(process_id);
+
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::Some(&[process_id]), true);
+
+        match system.process(process_id) {
+            Some(process) => Some(process.memory()),
+            None => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_return_values_values() {
+        let working_dir = std::fs::canonicalize("./")
+            .expect("could niot get canonical path");
+
+        let mut sys_info = SystemInfo::init(&working_dir)
+            .expect("could not create SystemInfo");
+
+        // drive space methods
+        let total_drive_space = sys_info.total_drive_space().unwrap_or_else(|| {
+            panic!("`total_drive_space` should return a value");
+        });
+        assert!(total_drive_space > 0, "`total_drive_space()` should be more than zero");
+
+        let free_drive_space = sys_info.free_drive_space().unwrap_or_else(|| {
+            panic!("`free_drive_space` should return a value");
+        });
+        assert!(free_drive_space > 0, "`free_drive_space`() should be more than zero");
+
+        // memeory
+        let available_memory = sys_info.available_memory();
+        assert!(available_memory > 0, "`available_memory()` should be more than zero");
+
+        let total_memory = sys_info.total_memory();
+        assert!(total_memory > 0, "`total_memory()` should be more than zero");
+        assert!(total_memory > available_memory, "``total_memory()` should be higher than `available_memory()`");
+
+        // CPU
+        let total_cores = sys_info.available_physical_cores().unwrap_or_else(|| {
+            panic!("`total_cores` should return a value");
+        });
+        assert!(total_cores > 0, "`total_cores()` should be more than zero");
+
+    }
+
+    fn hard_space_should_update() {
+        let working_dir = std::fs::canonicalize("./")
+            .expect("could niot get canonical path");
+
+        let mut sys_info = SystemInfo::init(&working_dir)
+            .expect("could not create SystemInfo");
+
+        let timer = Instant::now();
+
+        let free_drive_space = sys_info.free_drive_space().unwrap_or_else(|| {
+            panic!("`free_drive_space` should return a value");
+        });
+
+        for _ in 0..5 {
+            let new_free_drive_space = sys_info.free_drive_space().unwrap_or_else(|| {
+                panic!("`free_drive_space` should return a value");
+            });
+
+            assert_eq!(free_drive_space, new_free_drive_space);
+        }
+
+        
+     }
+}

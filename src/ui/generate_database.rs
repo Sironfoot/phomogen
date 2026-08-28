@@ -90,11 +90,11 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     for core in &report.cores {
         let core_message = match core.status {
             VideoIndexStatus::Initialising => {
-                format!("* Core {}: Intialising...\n", core.core_id)
+                format!("* Core {}: Intialising...\n", core.instance_id)
             }
             _ => {
                 format!("* Core {}: {} / {} frames ({:.2}%) - {:.2} fps\n",
-                    core.core_id,
+                    core.instance_id,
                     core.frames_processed.to_formatted_string(&Locale::en),
                     core.total_frames.to_formatted_string(&Locale::en),
                     core.percentage_complete(),

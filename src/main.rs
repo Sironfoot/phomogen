@@ -22,29 +22,18 @@ use ratatui::crossterm::terminal::{
 };
 
 use anyhow::Result;
-use sysinfo::{Disks, System};
 
 use crate::app::{App, AppStage, ImageFile, ImageType, SystemInfo, VideoFile, VideoIndexCore, VideoIndexStatus, VideoIndexingReport};
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm, ColorExtractionProgress, ColorExtractor};
 use crate::ui::render_ui;
 use crate::ffmpeg::VideoMetadata;
 
-const DEFAULT_MAX_CORES: u32 = 4;
-
 fn main() -> Result<()> {
     // TODO: replace with CLI args + better error handling
     const TEST_DIR: &str = "./videos";
 
-    let wk_dir = TEST_DIR; 
-
-    let physical_cores = match System::physical_core_count() {
-        Some(cores) => Some(cores as u32),
-        None => None,
-    };
-
-    // TODO: will eventually be configurable
-    let max_allowed_cores = physical_cores.unwrap_or(DEFAULT_MAX_CORES);
-
+    let wk_dir = TEST_DIR;
+    
     let working_dir = match std::fs::canonicalize(wk_dir) {
         Ok(path) => path,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -52,26 +41,8 @@ fn main() -> Result<()> {
         },
         Err(err) => panic!("Unknown error: {}", err),
     };
-    
-    let disks = Disks::new_with_refreshed_list();
 
-    let current_disk = disks
-        .list()
-        .iter()
-        .filter(|disk| working_dir.starts_with(disk.mount_point()))
-        .max_by_key(|disk| disk.mount_point().components().count());
-    
-    let (total_space, free_space) = match current_disk {
-        Some(disk) => (Some(disk.total_space()), Some(disk.available_space())),
-        None => (None, None),
-    };
-
-    let sys_info = SystemInfo {
-        available_physical_cores: physical_cores,
-        max_allowed_cores: max_allowed_cores,
-        total_drive_space: total_space,
-        free_space: free_space,
-    };
+    let sys_info = SystemInfo::init(&working_dir)?;
 
     enable_raw_mode()?;
 
@@ -381,7 +352,7 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
 
     let database_dir = app.database_dir.clone();
 
-    let max_allowed_cores = app.system_info.max_allowed_cores;
+    let max_allowed_cores = app.system_info.max_allowed_cores();
 
     let tiles_x = app.tiles_x;
     let tiles_y = app.tiles_y;
@@ -467,7 +438,7 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
             inner_report.status = VideoIndexStatus::Running;
 
             if let Some(core) = inner_report.cores.iter_mut()
-                .find(|c| c.core_id == extraction_progress.process_id) {
+                .find(|c| c.instance_id == extraction_progress.instance_id) {
                 
                 core.frames_processed = extraction_progress.total_frames_processed;
                 core.average_fps = extraction_progress.average_fps;

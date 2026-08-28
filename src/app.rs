@@ -1,3 +1,6 @@
+mod system_info;
+pub use system_info::SystemInfo;
+
 use std::{ops::Add, path::{Path, PathBuf}, time::Duration};
 
 use image::DynamicImage;
@@ -20,14 +23,6 @@ pub struct App {
 
     pub current_image_index: u32,
     pub images: Vec<ImageFile>,
-}
-
-pub struct SystemInfo {
-    pub available_physical_cores: Option<u32>,
-    pub max_allowed_cores: u32,
-
-    pub total_drive_space: Option<u64>,
-    pub free_space: Option<u64>,
 }
 
 pub struct VideoFile {
@@ -97,7 +92,7 @@ impl VideoIndexingReport {
 
 #[derive(Clone, Debug)]
 pub struct VideoIndexCore {
-    pub core_id: u32,
+    pub instance_id: u32,
     pub frames_processed: u64,
     pub total_frames: u64,
     pub average_fps: f64,
@@ -106,9 +101,9 @@ pub struct VideoIndexCore {
 }
 
 impl VideoIndexCore {
-    pub fn new(core_id: u32, total_frames: u64) -> VideoIndexCore {
+    pub fn new(instance_id: u32, total_frames: u64) -> VideoIndexCore {
         VideoIndexCore {
-            core_id,
+            instance_id,
             frames_processed: 0,
             total_frames,
             average_fps: 0.0,

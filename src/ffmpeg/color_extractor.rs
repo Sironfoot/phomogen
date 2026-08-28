@@ -56,14 +56,14 @@ fn compute_output_buffer_size(crops: &[CropSetting]) -> usize {
 }
 
 pub struct ColorExtractionProgress {
-    pub process_id: u32,
+    pub instance_id: u32,
     pub total_frames_processed: u64,
     pub average_fps: f64,
     pub percentage_complete: f64,
 }
 
 pub struct ColorExtractor {
-    process_id: u32,
+    instance_id: u32,
     data_file: BufWriter<File>,
 
     video: VideoMetadata,
@@ -81,7 +81,7 @@ pub struct ColorExtractor {
 
 impl ColorExtractor {
     pub fn init(
-        process_id: u32,
+        instance_id: u32,
         video: VideoMetadata,
         start_frame_index: u64,
         end_frame_index: u64,
@@ -100,7 +100,7 @@ impl ColorExtractor {
         let max_ffmpeg_threads = DEFAULT_MAX_FFMPEG_THREADS;
 
         Ok(ColorExtractor {
-            process_id,
+            instance_id,
             data_file,
             video,
             max_ffmpeg_threads,
@@ -196,7 +196,7 @@ impl ColorExtractor {
 
                     if current_frame_index == self.end_frame_index {
                         tx.send(ColorExtractionProgress {
-                            process_id: self.process_id,
+                            instance_id: self.instance_id,
                             total_frames_processed: total_frames,
                             average_fps: 0.0,
                             percentage_complete: 100.0,
@@ -214,7 +214,7 @@ impl ColorExtractor {
                         let average_fps = total_frames_processed as f64 / average_elapsed;
 
                         tx.send(ColorExtractionProgress {
-                            process_id: self.process_id,
+                            instance_id: self.instance_id,
                             total_frames_processed: total_frames_processed,
                             average_fps: average_fps,
                             percentage_complete: percentage_complete,
@@ -223,7 +223,7 @@ impl ColorExtractor {
                 },
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
                     tx.send(ColorExtractionProgress {
-                        process_id: self.process_id,
+                        instance_id: self.instance_id,
                         total_frames_processed: total_frames,
                         average_fps: 0.0,
                         percentage_complete: 100.0,
