@@ -106,18 +106,19 @@ impl SystemInfo {
     }
 
     fn get_disk(&mut self) -> Option<&mut sysinfo::Disk> {
-        let disk: &mut sysinfo::Disk = self
-            .disks
-            .list_mut()
-            .iter_mut()
-            .find(|disk| disk.mount_point() == &self.disk_mount_point)?;
-
         if self.drive_refresh_timer.elapsed() >= self.drive_refresh_interval {
-            disk.refresh();
+            // NOTE: we're refreshing the entire disks collection here instead of an individual disk as
+            // refreshing the individual disk has a bug with macOS where available_space doesn't update
+            // see https://github.com/GuillaumeGomez/sysinfo/issues/1046
+            self.disks.refresh(false);
             self.drive_refresh_timer = Instant::now();
         }
 
-        Some(disk)
+        self
+            .disks
+            .list_mut()
+            .iter_mut()
+            .find(|disk| disk.mount_point() == &self.disk_mount_point)
     }
 
     pub fn total_drive_space(&mut self) -> Option<u64> {
@@ -147,13 +148,19 @@ impl SystemInfo {
 mod tests {
     use super::*;
 
-    #[test]
-    fn should_return_values_values() {
+    use std::{ops::Sub, thread};
+
+    fn get_sys_info() -> SystemInfo {
         let working_dir = std::fs::canonicalize("./")
             .expect("could niot get canonical path");
 
-        let mut sys_info = SystemInfo::init(&working_dir)
-            .expect("could not create SystemInfo");
+        SystemInfo::init(&working_dir)
+            .expect("could not create SystemInfo")
+    }
+
+    #[test]
+    fn should_return_valid_values() {
+        let mut sys_info = get_sys_info();
 
         // drive space methods
         let total_drive_space = sys_info.total_drive_space().unwrap_or_else(|| {
@@ -175,22 +182,24 @@ mod tests {
         assert!(total_memory > available_memory, "``total_memory()` should be higher than `available_memory()`");
 
         // CPU
+        let expected_total_cores = System::physical_core_count()
+            .expect("could not determine core count") as u32;
+
         let total_cores = sys_info.available_physical_cores().unwrap_or_else(|| {
             panic!("`total_cores` should return a value");
         });
-        assert!(total_cores > 0, "`total_cores()` should be more than zero");
+        assert_eq!(total_cores, expected_total_cores, "`total_cores()` should be more than zero");
 
     }
 
+    #[test]
     fn hard_space_should_update() {
-        let working_dir = std::fs::canonicalize("./")
-            .expect("could niot get canonical path");
+        let mut sys_info = get_sys_info();
 
-        let mut sys_info = SystemInfo::init(&working_dir)
-            .expect("could not create SystemInfo");
-
+        sys_info.drive_refresh_interval = Duration::from_millis(100);
         let timer = Instant::now();
 
+        // multiple calls to free_drive_space should return same value (cached for 1 second)
         let free_drive_space = sys_info.free_drive_space().unwrap_or_else(|| {
             panic!("`free_drive_space` should return a value");
         });
@@ -203,6 +212,59 @@ mod tests {
             assert_eq!(free_drive_space, new_free_drive_space);
         }
 
-        
+        // reduce free space by 1MB
+        let working_dir = std::fs::canonicalize("./")
+            .expect("could niot get canonical path");
+        let test_file = working_dir.join("app_system_info_hard_space_should_update_test_file.bin");
+        std::fs::write(&test_file, vec![0_u8; 1024 * 1024])
+            .expect("could not create test file");
+
+        // wait for cache to expire
+        thread::sleep(Duration::from_millis(101).sub(timer.elapsed()));
+
+        // free space should be reduced
+        let updated_free_drive_space = sys_info.free_drive_space().unwrap_or_else(|| {
+            panic!("`free_drive_space` should return a value");
+        });
+
+        // space can go up as wel as down if another process is writing to disk
+        let updated_space_has_been_changed = updated_free_drive_space != free_drive_space;
+
+        std::fs::remove_file(&test_file)
+            .expect("could not remove test file");
+
+        assert!(updated_space_has_been_changed, "available drive space should have changed");
+     }
+
+    #[test]
+     fn check_external_process_memory() {
+        let mut sys_info = get_sys_info();
+        let this_process_mem_usage = sys_info.process_memory_usage();
+
+        let process_id = std::process::id();
+        let external_mem_usage = SystemInfo::get_process_memory_usage(process_id)
+            .expect("could not get external process memory usage");
+
+        // output as rounded to nearest MB as there can be slight variation of
+        // RAM usage as the unit test is running, this level of accuracy is sufficient for our purposes
+        let this_memory_usage_mb = (this_process_mem_usage as f64 / 1000.0 / 1000.0).round();
+        let external_mem_usage_mb = (external_mem_usage as f64 / 1000.0 / 1000.0).round();
+
+        assert_eq!(this_memory_usage_mb, external_mem_usage_mb,
+            "current & external process should be using the same amount of memory because they are the same process");
+     }
+
+     #[test]
+     fn max_allowed_cores_should_be_bullied_into_range() {
+        let mut sys_info = get_sys_info();
+
+        let total_cores = System::physical_core_count()
+            .expect("could not determine core count") as u32;
+
+        sys_info.set_max_allowed_cores(0);
+        assert_eq!(sys_info.max_allowed_cores(), 1, "should not be lower than 1");
+
+        sys_info.set_max_allowed_cores(total_cores + 1);
+        assert_eq!(sys_info.max_allowed_cores(), total_cores, "should not be more than system's total cores");
      }
 }
