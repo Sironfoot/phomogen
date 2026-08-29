@@ -26,6 +26,8 @@ pub struct App {
 
     pub current_image_index: u32,
     pub images: Vec<ImageFile>,
+
+    pub temp_time: u128,
 }
 
 pub struct VideoFile {
@@ -35,7 +37,8 @@ pub struct VideoFile {
 
     pub indexing_report: Option<VideoIndexingReport>,
     pub database: Option<VideoColorIndexDatabase>,
-    pub total_database_frames_loaded: u64,
+    pub total_database_frames_loaded: u32,
+    pub total_dropped_frames: u32,
 }
 
 impl VideoFile {
@@ -47,6 +50,7 @@ impl VideoFile {
             indexing_report: None,
             database: None,
             total_database_frames_loaded: 0,
+            total_dropped_frames: 0,
         }
     }
 }
@@ -169,6 +173,7 @@ impl App {
             color_extraction_algorithm: ColorExtractionAlgorithm::PixelArrayTraversal,
             current_image_index: 0,
             images: vec![],
+            temp_time: 0,
         }
     }
 }

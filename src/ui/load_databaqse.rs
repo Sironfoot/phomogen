@@ -50,10 +50,16 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     let mut output = String::new();
 
     for video in videos {
-        let line = format!(" - {}: {} / {} frames processed\n",
+        let mut line = format!(" - {}: {} / {} frames processed",
             video.metadata.file_name,
             video.total_database_frames_loaded.to_formatted_string(&Locale::en),
             video.metadata.total_frames.to_formatted_string(&Locale::en));
+
+        if video.total_dropped_frames > 0 {
+            line.push_str(&format!(" - DROPPED FRAMES: {}", video.total_dropped_frames));
+        }
+
+        line.push_str("\n");
 
         output.push_str(&line);
     }

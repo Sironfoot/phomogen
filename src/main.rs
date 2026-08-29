@@ -2,9 +2,10 @@ pub mod app;
 pub mod ui;
 pub mod ffmpeg;
 
+use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{io, thread};
 use std::io::BufRead;
 use std::fs::{self, File};
@@ -28,7 +29,7 @@ use crate::app::{App, AppStage, ImageFile, ImageType, SystemInfo, VideoFile, Vid
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm, ColorExtractionProgress, ColorExtractor};
 use crate::ui::render_ui;
 use crate::ffmpeg::VideoMetadata;
-use crate::app::frame_data::{Color, VideoColorIndexDatabase, FrameCrop};
+use crate::app::frame_data::{Color, FrameCrop, FrameData, VideoColorIndexDatabase};
 
 fn main() -> Result<()> {
     // TODO: replace with CLI args + better error handling
@@ -168,10 +169,13 @@ where
 
                         if let Some(video) = video {
                             video.total_database_frames_loaded = report.total_frames_processed;
+                            video.total_dropped_frames = report.dropped_frames;
                             
                             if let Some(database) = report.database {
                                 video.database = Some(database);
                                 load_database_receiver = None;
+
+                                app.temp_time = report.time.unwrap_or(0);
                             }
 
                             should_render = true;
@@ -658,7 +662,9 @@ fn read_image_files(app: &App) -> Receiver<Vec<ImageFile>> {
 
 struct LoadDatabaseProgressReport {
     video_file_name: String,
-    total_frames_processed: u64,
+    total_frames_processed: u32,
+    dropped_frames: u32,
+    time: Option<u128>,
     database: Option<VideoColorIndexDatabase>,
 }
 
@@ -667,43 +673,112 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
 
     let tiles_x = app.tiles_x;
     let tiles_y = app.tiles_y;
+    let total_colors = (tiles_x * tiles_y) as usize;
 
     let video_file_name = video.metadata.file_name.clone();
-    let total_frames = video.metadata.total_frames;
+    let total_frames = video.metadata.total_frames as u32;
     let database_path = video.database_path.clone().unwrap();
 
     thread::spawn(move || {
-        const REPORT_PROGRESS_AFTER_FRAMES: u64 = 123;
-        let mut total_frames_added: u64 = 0;
+        const REPORT_PROGRESS_AFTER_FRAMES: u32 = 1234;
+        let mut total_frames_added: u32 = 0;
 
-        let mut color_database = VideoColorIndexDatabase::new(
-            tiles_x, tiles_y, total_frames);
+        let mut frames: HashMap<u32, FrameData> = HashMap::with_capacity(total_frames as usize);
 
         let data_file = File::open(&database_path).unwrap();
-        let lines = io::BufReader::new(data_file).lines();
+        let mut reader = io::BufReader::with_capacity(256 * 1024, data_file);
+
+        let mut dropped_frames: u32 = 0;
+        let timer = Instant::now();
+
+        let max_line_length = 222;
+        let mut line = String::with_capacity(max_line_length);
         
         // e.g. 0 100 0 0 108,105,100 99,96,99 85,85,77....
-        for line in lines.map_while(Result::ok) {
-            let parts: Vec<&str> = line.split(' ').collect();
-            
-            let frame_index: u64 = parts[0].parse().unwrap();
-            let resize_percentage: f64 = parts[1].parse().unwrap();
-            let pos_x_percentage: f64 = parts[2].parse().unwrap();
-            let pos_y_percentage: f64 = parts[3].parse().unwrap();
+        loop {
+            line.clear();
 
-            const OFFSET: usize = 4; // skip 4 values that aren't RGB colors
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {},
+                Err(_) => break,
+            }
 
-            let total_colors = parts.len() - OFFSET;
+            let mut parts = line.split_ascii_whitespace();
+
+            // since the database is a basic text file, we needto deal with the potential
+            // that it's been opened and tampered with
+
+            // get frame index
+            let Some(frame_index) = parts.next().and_then(|part| part.parse::<u32>().ok()) else {
+                dropped_frames += 1;
+                continue;
+            };
+
+            // check frame index is valid, can't be more than frames in the video
+            if (frame_index + 1) > total_frames {
+                dropped_frames += 1;
+                continue;
+            }
+
+            // get resize precentage
+            let Some(resize_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
+                dropped_frames += 1;
+                continue;
+            };
+
+            // should be in range 1 - 100
+            if resize_percentage < 1.0 || resize_percentage > 100.0 {
+                dropped_frames += 1;
+                continue;
+            }
+
+            // get pos X
+            let Some(pos_x_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
+                dropped_frames += 1;
+                continue;
+            };
+
+            if pos_x_percentage > 100.0 {
+                dropped_frames += 1;
+                continue;
+            }
+
+            // get pos Y
+            let Some(pos_y_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
+                dropped_frames += 1;
+                continue;
+            };
+
+            if pos_y_percentage > 100.0 {
+                dropped_frames += 1;
+                continue;
+            }
+
             let mut colors: Vec<Color> = Vec::with_capacity(total_colors);
 
-            for i in OFFSET..parts.len() {
-                let rgb: Vec<&str> = parts[i].split(',').collect();
+            while let Some(color) = parts.next() {
+                let mut rgb= color.split(',');
 
-                let r: u8 = rgb[0].parse().unwrap();
-                let g: u8 = rgb[1].parse().unwrap();
-                let b: u8 = rgb[2].parse().unwrap();
+                let Some(r) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
+                    continue;
+                };
+
+                let Some(g) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
+                    continue;
+                };
+
+                let Some(b) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
+                    continue;
+                };
 
                 colors.push(Color { r, g, b });
+            }
+
+            // number of colors should match number of tiles
+            if colors.len() != total_colors {
+                dropped_frames += 1;
+                continue;
             }
 
             let mut crop = FrameCrop::init(
@@ -714,23 +789,40 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
 
             crop.colors = colors;
 
-            let new_frame_inserted = color_database.add_frame_crop(frame_index, crop).unwrap();
-            if new_frame_inserted {
+            let mut new_frame_added = false;
+
+            let frame_data = frames
+                .entry(frame_index)
+                .or_insert_with(|| {
+                    new_frame_added = true;
+                    FrameData::new(frame_index)
+                });
+
+            if new_frame_added {
                 total_frames_added += 1;
             }
 
-            if total_frames_added % REPORT_PROGRESS_AFTER_FRAMES == 0 {
+            frame_data.crops.push(crop);
+
+            if new_frame_added && total_frames_added % REPORT_PROGRESS_AFTER_FRAMES == 0 {
                 tx.send(LoadDatabaseProgressReport {
                     video_file_name: video_file_name.clone(),
                     total_frames_processed: total_frames_added,
+                    dropped_frames,
+                    time: None,
                     database: None,
                 }).unwrap();
             }
         }
 
+        let color_database = VideoColorIndexDatabase::new(
+            tiles_x, tiles_y, frames.into_values().collect());
+
         tx.send(LoadDatabaseProgressReport {
             video_file_name: video_file_name,
             total_frames_processed: total_frames_added,
+            dropped_frames,
+            time: Some(timer.elapsed().as_millis()),
             database: Some(color_database),
         }).unwrap();
     });
