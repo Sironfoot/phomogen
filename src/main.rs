@@ -6,6 +6,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{io, thread};
+use std::io::BufRead;
 use std::fs::{self, File};
 
 use image::{ImageFormat, ImageReader};
@@ -27,6 +28,7 @@ use crate::app::{App, AppStage, ImageFile, ImageType, SystemInfo, VideoFile, Vid
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm, ColorExtractionProgress, ColorExtractor};
 use crate::ui::render_ui;
 use crate::ffmpeg::VideoMetadata;
+use crate::app::frame_data::{Color, VideoColorIndexDatabase, FrameCrop};
 
 fn main() -> Result<()> {
     // TODO: replace with CLI args + better error handling
@@ -73,6 +75,7 @@ where
     let rc = read_video_files(&app);
     let mut images_receiver: Option<Receiver<Vec<ImageFile>>> = None;
     let mut color_extractor_receiver: Option<Receiver<VideoIndexingReport>> = None;
+    let mut load_database_receiver: Option<Receiver<LoadDatabaseProgressReport>> = None;
 
     let mut should_render = true;
 
@@ -96,7 +99,7 @@ where
                 }
             },
             AppStage::VideoSelect => {
-                // TODO: hot reloadding of video list
+                // TODO: hot reloading of video list
             },
             AppStage::GenerateMosaicDatabase => {
                 if color_extractor_receiver.is_none() {
@@ -137,7 +140,44 @@ where
                 }
             },
             AppStage::LoadMosaicDatabase => {
-                // TODO: implement
+                if load_database_receiver.is_none() {
+                    let next_video = app.videos.iter()
+                        .find(|v| {
+                            v.is_chosen &&
+                            v.database_path.is_some() &&
+                            v.database.is_none()
+                        });
+
+                    match next_video {
+                        Some(video) => {
+                            load_database_receiver = Some(load_database(&video, &app))
+                        },
+                        None => {
+                            app.stage = AppStage::ImageSelect;
+                            should_render = true;
+                        }
+                    }
+                }
+
+                if let Some(rc) = &load_database_receiver {
+                    let reports: Vec<LoadDatabaseProgressReport> = rc.try_iter().collect();
+
+                    for report in reports {
+                        let video = app.videos.iter_mut()
+                            .find(|v| v.metadata.file_name == report.video_file_name);
+
+                        if let Some(video) = video {
+                            video.total_database_frames_loaded = report.total_frames_processed;
+                            
+                            if let Some(database) = report.database {
+                                video.database = Some(database);
+                                load_database_receiver = None;
+                            }
+
+                            should_render = true;
+                        }
+                    }
+                }
             },
             AppStage::ImageSelect => {
                 if images_receiver.is_none() {
@@ -532,12 +572,8 @@ fn read_video_files(app: &App) -> Receiver<Vec<VideoFile>> {
             let data_exists = fs::exists(&full_data_path).unwrap_or(false);
 
             if let Ok(meta_data) = meta_data {
-                let video = VideoFile {
-                    metadata: meta_data,
-                    is_chosen: false,
-                    database_path: if data_exists { Some(full_data_path) } else { None },
-                    indexing_report: None,
-                };
+                let mut video = VideoFile::new(meta_data);
+                video.database_path = if data_exists { Some(full_data_path) } else { None };
 
                 videos.push(video);
             }
@@ -614,6 +650,89 @@ fn read_image_files(app: &App) -> Receiver<Vec<ImageFile>> {
         }
 
         tx.send(images).unwrap();
+    });
+
+    rc
+}
+
+
+struct LoadDatabaseProgressReport {
+    video_file_name: String,
+    total_frames_processed: u64,
+    database: Option<VideoColorIndexDatabase>,
+}
+
+fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressReport> {
+    let (tx, rc) = mpsc::channel::<LoadDatabaseProgressReport>();
+
+    let tiles_x = app.tiles_x;
+    let tiles_y = app.tiles_y;
+
+    let video_file_name = video.metadata.file_name.clone();
+    let total_frames = video.metadata.total_frames;
+    let database_path = video.database_path.clone().unwrap();
+
+    thread::spawn(move || {
+        const REPORT_PROGRESS_AFTER_FRAMES: u64 = 123;
+        let mut total_frames_added: u64 = 0;
+
+        let mut color_database = VideoColorIndexDatabase::new(
+            tiles_x, tiles_y, total_frames);
+
+        let data_file = File::open(&database_path).unwrap();
+        let lines = io::BufReader::new(data_file).lines();
+        
+        // e.g. 0 100 0 0 108,105,100 99,96,99 85,85,77....
+        for line in lines.map_while(Result::ok) {
+            let parts: Vec<&str> = line.split(' ').collect();
+            
+            let frame_index: u64 = parts[0].parse().unwrap();
+            let resize_percentage: f64 = parts[1].parse().unwrap();
+            let pos_x_percentage: f64 = parts[2].parse().unwrap();
+            let pos_y_percentage: f64 = parts[3].parse().unwrap();
+
+            const OFFSET: usize = 4; // skip 4 values that aren't RGB colors
+
+            let total_colors = parts.len() - OFFSET;
+            let mut colors: Vec<Color> = Vec::with_capacity(total_colors);
+
+            for i in OFFSET..parts.len() {
+                let rgb: Vec<&str> = parts[i].split(',').collect();
+
+                let r: u8 = rgb[0].parse().unwrap();
+                let g: u8 = rgb[1].parse().unwrap();
+                let b: u8 = rgb[2].parse().unwrap();
+
+                colors.push(Color { r, g, b });
+            }
+
+            let mut crop = FrameCrop::init(
+                tiles_x,
+                resize_percentage,
+                pos_x_percentage,
+                pos_y_percentage);
+
+            crop.colors = colors;
+
+            let new_frame_inserted = color_database.add_frame_crop(frame_index, crop).unwrap();
+            if new_frame_inserted {
+                total_frames_added += 1;
+            }
+
+            if total_frames_added % REPORT_PROGRESS_AFTER_FRAMES == 0 {
+                tx.send(LoadDatabaseProgressReport {
+                    video_file_name: video_file_name.clone(),
+                    total_frames_processed: total_frames_added,
+                    database: None,
+                }).unwrap();
+            }
+        }
+
+        tx.send(LoadDatabaseProgressReport {
+            video_file_name: video_file_name,
+            total_frames_processed: total_frames_added,
+            database: Some(color_database),
+        }).unwrap();
     });
 
     rc

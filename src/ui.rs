@@ -47,7 +47,7 @@ pub fn render_ui(frame: &mut Frame, app: &mut App){
         AppStage::Initial => initial_loading::render(frame, main_content),
         AppStage::VideoSelect => video_selection::render(frame, main_content, app),
         AppStage::GenerateMosaicDatabase => generate_database::render(frame, main_content, app),
-        AppStage::LoadMosaicDatabase => load_databaqse::render(frame, main_content),
+        AppStage::LoadMosaicDatabase => load_databaqse::render(frame, main_content, app),
         AppStage::ImageSelect => image_selection::render(frame, main_content, app),
         _ => under_construction::render(frame, main_content),
     };

@@ -1,11 +1,14 @@
 mod system_info;
 pub use system_info::SystemInfo;
 
+pub mod frame_data;
+
 use std::{ops::Add, path::{Path, PathBuf}, time::Duration};
 
 use image::DynamicImage;
 
 use crate::ffmpeg::{VideoMetadata, color_extractor::ColorExtractionAlgorithm};
+use crate::app::frame_data::VideoColorIndexDatabase;
 
 pub struct App {
     pub stage: AppStage,
@@ -31,6 +34,8 @@ pub struct VideoFile {
     pub database_path: Option<PathBuf>,
 
     pub indexing_report: Option<VideoIndexingReport>,
+    pub database: Option<VideoColorIndexDatabase>,
+    pub total_database_frames_loaded: u64,
 }
 
 impl VideoFile {
@@ -40,6 +45,8 @@ impl VideoFile {
             is_chosen: false,
             database_path: None,
             indexing_report: None,
+            database: None,
+            total_database_frames_loaded: 0,
         }
     }
 }
@@ -213,7 +220,7 @@ pub enum AppStage {
     Initial,
     VideoSelect,
     GenerateMosaicDatabase,
-    ImageSelect,
     LoadMosaicDatabase,
+    ImageSelect,
     Quitting,
 }
