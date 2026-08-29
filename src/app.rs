@@ -7,7 +7,7 @@ use std::{ops::Add, path::{Path, PathBuf}, time::Duration};
 
 use image::DynamicImage;
 
-use crate::ffmpeg::{VideoMetadata, color_extractor::ColorExtractionAlgorithm};
+use crate::{app::frame_data::Color, ffmpeg::{VideoMetadata, color_extractor::ColorExtractionAlgorithm}};
 use crate::app::frame_data::VideoColorIndexDatabase;
 
 pub struct App {
@@ -19,6 +19,9 @@ pub struct App {
 
     pub tiles_x: u32,
     pub tiles_y: u32,
+
+    pub mosaic_tiles_x: u32,
+    pub mosaic_tiles_y: u32,
 
     pub current_video_index: u32,
     pub videos: Vec<VideoFile>,
@@ -63,6 +66,13 @@ pub struct ImageFile {
     pub format: ImageType,
     pub preview: Option<DynamicImage>, 
     pub is_chosen: bool,
+
+    pub image_tiles: Option<Vec<ImageTile>>,
+}
+
+#[derive(Debug)]
+pub struct ImageTile {
+    pub colors: Vec<Color>,
 }
 
 #[derive(Clone, Debug)]
@@ -168,6 +178,8 @@ impl App {
             database_dir: database_dir,
             tiles_x: 4,
             tiles_y: 4,
+            mosaic_tiles_x: 40,
+            mosaic_tiles_y: 40,
             current_video_index: 0,
             videos: vec![],
             color_extraction_algorithm: ColorExtractionAlgorithm::PixelArrayTraversal,
@@ -175,6 +187,11 @@ impl App {
             images: vec![],
             temp_time: 0,
         }
+    }
+
+    pub fn set_mosaic_tiles(&mut self, num_x: u32, num_y: u32) {
+        self.mosaic_tiles_x = num_x;
+        self.mosaic_tiles_y = num_y;
     }
 }
 
@@ -227,5 +244,6 @@ pub enum AppStage {
     GenerateMosaicDatabase,
     LoadMosaicDatabase,
     ImageSelect,
+    ProcessImage,
     Quitting,
 }

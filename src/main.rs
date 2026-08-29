@@ -6,11 +6,12 @@ use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use std::{io, thread};
+use std::{cmp, io, thread};
 use std::io::BufRead;
 use std::fs::{self, File};
 
-use image::{ImageFormat, ImageReader};
+use image::imageops::FilterType;
+use image::{GenericImageView, ImageFormat, ImageReader, imageops};
 
 use ratatui::{Terminal};
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -25,7 +26,7 @@ use ratatui::crossterm::terminal::{
 
 use anyhow::Result;
 
-use crate::app::{App, AppStage, ImageFile, ImageType, SystemInfo, VideoFile, VideoIndexCore, VideoIndexStatus, VideoIndexingReport};
+use crate::app::{App, AppStage, ImageFile, ImageTile, ImageType, SystemInfo, VideoFile, VideoIndexCore, VideoIndexStatus, VideoIndexingReport};
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm, ColorExtractionProgress, ColorExtractor};
 use crate::ui::render_ui;
 use crate::ffmpeg::VideoMetadata;
@@ -56,6 +57,8 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(&working_dir, sys_info);
+    app.set_mosaic_tiles(40, 40);
+
     run_app(&mut terminal, &mut app)?;
 
     disable_raw_mode()?;
@@ -77,6 +80,7 @@ where
     let mut images_receiver: Option<Receiver<Vec<ImageFile>>> = None;
     let mut color_extractor_receiver: Option<Receiver<VideoIndexingReport>> = None;
     let mut load_database_receiver: Option<Receiver<LoadDatabaseProgressReport>> = None;
+    let mut calculate_image_colors_receiver: Option<Receiver<Vec<ImageTile>>> = None;
 
     let mut should_render = true;
 
@@ -210,6 +214,23 @@ where
                                     selected_image.preview = Some(image);
                                 }
                             }
+                        }
+                    }
+                }
+            },
+            AppStage::ProcessImage => {
+                if calculate_image_colors_receiver.is_none() {
+                    calculate_image_colors_receiver = Some(calculate_image_colors(&app));
+                }
+
+                if let Some(rc) = &calculate_image_colors_receiver {
+                    if let Ok(image_tiles) = rc.try_recv() {
+                        if let Some(image) = app.images.iter_mut().find(|i| i.is_chosen) {
+                            image.image_tiles = Some(image_tiles);
+                            should_render = true;
+                            //calculate_image_colors_receiver = None;
+
+                            println!("{:?}", image.image_tiles);
                         }
                     }
                 }
@@ -374,7 +395,7 @@ where
                             },
                             KeyCode::Enter => {
                                 if app.images.iter().any(|i| i.is_chosen) {
-                                    app.stage = AppStage::GenerateMosaicDatabase;
+                                    app.stage = AppStage::ProcessImage;
                                 }
                                 should_render = true;
                             }
@@ -649,6 +670,7 @@ fn read_image_files(app: &App) -> Receiver<Vec<ImageFile>> {
                 format: format,
                 preview: None,
                 is_chosen: false,
+                image_tiles: None,
             });
             
         }
@@ -825,6 +847,98 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
             time: Some(timer.elapsed().as_millis()),
             database: Some(color_database),
         }).unwrap();
+    });
+
+    rc
+}
+
+
+fn calculate_image_colors(app: &App) -> Receiver<Vec<ImageTile>> {
+    let (tx, rc) = mpsc::channel::<Vec<ImageTile>>();
+
+    let image = app.images.iter().find(|i| i.is_chosen)
+        .expect("No image is chosen");
+    let image_path = image.full_path.clone();
+
+    let tiles_x = app.tiles_x;
+    let tiles_y = app.tiles_y;
+
+    let mosaic_tiles_x = app.mosaic_tiles_x;
+    let mosaic_tiles_y = app.mosaic_tiles_y;
+
+    thread::spawn(move || {
+        let total_tiles = mosaic_tiles_x * mosaic_tiles_y;
+        let mut image_tiles: Vec<ImageTile> = Vec::with_capacity(total_tiles as usize);
+
+        let image_file = image::open(image_path).unwrap();
+        let image_data = image_file.to_rgb8();
+
+        let width: u32 = 7680;
+        let height: u32 = 4320;
+
+        // resize to 8K image to reduce chance of fractional units with large number of tiles/sub-titles
+        let image_data = imageops::resize(
+            &image_data, width, height, FilterType::Triangle);
+    
+        let tile_width = f64::round(width as f64 / mosaic_tiles_x as f64) as u32;
+        let tile_height = f64::round(height as f64 / mosaic_tiles_y as f64) as u32;
+
+        let sub_tile_width = f64::round(tile_width as f64 / tiles_x as f64) as u32;
+        let sub_tile_height = f64::round(tile_height as f64 / tiles_y as f64) as u32;
+
+        let total_sub_tile_pixels = sub_tile_width * sub_tile_height;
+
+        for tile_y in 0..mosaic_tiles_y {
+            for tile_x in 0..mosaic_tiles_x {
+                let start_x = tile_x * tile_width;
+                let start_y = tile_y * tile_height;
+
+                let sub_image = image_data.view(start_x, start_y, tile_width, tile_height);
+
+                let mut tile_data = ImageTile {
+                    colors: vec![]
+                };
+                
+                for sub_tile_y in 0..tiles_y {
+                    for sub_tile_x in 0..tiles_x {
+                        let start_x = sub_tile_x * sub_tile_width;
+                        let end_x = cmp::min(start_x + sub_tile_width, tile_width);
+
+                        let start_y = sub_tile_y * sub_tile_height;
+                        let end_y = cmp::min(start_y + sub_tile_height, tile_height);
+
+                        let mut total_red: u64 = 0;
+                        let mut total_green: u64 = 0;
+                        let mut total_blue: u64 = 0;
+
+                        for pixel_y in start_y..end_y {
+                            for pixel_x in start_x..end_x {
+                                let pixel = sub_image.get_pixel(pixel_x, pixel_y);
+                                let [red, green, blue] = pixel.0;
+
+                                total_red += red as u64;
+                                total_green += green as u64;
+                                total_blue += blue as u64;
+                            }
+                        }
+
+                        let average_red = f64::round(total_red as f64 / total_sub_tile_pixels as f64) as u64;
+                        let average_green = f64::round(total_green as f64 / total_sub_tile_pixels as f64) as u64;
+                        let average_blue = f64::round(total_blue as f64 / total_sub_tile_pixels as f64) as u64;
+
+                        tile_data.colors.push(Color {
+                            r: average_red as u8,
+                            g: average_green as u8,
+                            b: average_blue as u8,
+                        });
+                    }
+                }
+
+                image_tiles.push(tile_data);
+            }
+        }
+
+        tx.send(image_tiles).unwrap();
     });
 
     rc
