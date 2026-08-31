@@ -4,9 +4,10 @@ pub mod ffmpeg;
 pub mod color_matcher;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration};
 use std::{cmp, io, thread};
 use std::io::BufRead;
 use std::fs::{self, File};
@@ -179,10 +180,8 @@ where
                             video.total_dropped_frames = report.dropped_frames;
                             
                             if let Some(database) = report.database {
-                                video.database = Some(database);
+                                video.database = Some(Arc::new(database));
                                 load_database_receiver = None;
-
-                                app.temp_time = report.time.unwrap_or(0);
                             }
 
                             should_render = true;
@@ -229,7 +228,7 @@ where
                 if let Some(rc) = &calculate_image_colors_receiver {
                     if let Ok(image_tiles) = rc.try_recv() {
                         if let Some(image) = app.images.iter_mut().find(|i| i.is_chosen) {
-                            image.image_tiles = Some(image_tiles);
+                            image.image_tiles = Some(Arc::new(image_tiles));
                             calculate_image_colors_receiver = None;
 
                             app.stage = AppStage::FindingMatches;
@@ -238,22 +237,14 @@ where
                     }
                 }
             },
-
             AppStage::FindingMatches => {
                 if find_matches_receiver.is_none() {
-                    let chosen_image = app.images.iter()
-                        .find(|i| i.is_chosen && i.image_tiles.is_some());
-                    if let Some(chosen_image) = chosen_image {
-                        find_matches_receiver = Some(find_matches(chosen_image, app))
-                    }
+                    app.reset_timer();
+                    find_matches_receiver = Some(find_matches(app));
                 }
-
-                println!("HERE!!");
 
                 if let Some(rc) = &find_matches_receiver {
                     let matches: Vec<FrameMatch> = rc.try_iter().collect();
-
-                   
 
                     if matches.len() > 0 {
                         let chosen_image = app.images.iter_mut()
@@ -266,18 +257,21 @@ where
 
                             for frame_match in matches {
                                 chosen_image.matched_tiles.as_mut().unwrap().push(frame_match);
-                                should_render = true;
                             }
 
-                            let total_mosaic_tiles = app.mosaic_tiles_x * app.mosaic_tiles_y;
+                            let total_mosaic_tiles = (app.mosaic_tiles_x * app.mosaic_tiles_y) as usize;
+                            let completed_mosaic_tiles = chosen_image.matched_tiles.as_ref().unwrap().len();
 
-                            if chosen_image.matched_tiles.as_ref().unwrap().len() == total_mosaic_tiles as usize {
-                                // move to next screen
+                            let is_finished = completed_mosaic_tiles == total_mosaic_tiles;
+                            if is_finished {
+                                app.stop_timer();
                             }
                         }
+
+                        should_render = true;
                     }
                 }
-            }
+            },
             _ => {}
         }
 
@@ -705,17 +699,13 @@ fn read_image_files(app: &App) -> Receiver<Vec<ImageFile>> {
                 _ => { continue; }
             };
 
-            images.push(ImageFile {
-                file_name: image_file,
-                full_path: full_path,
-                width: width,
-                height: height,
-                format: format,
-                preview: None,
-                is_chosen: false,
-                image_tiles: None,
-                matched_tiles: None,
-            });
+            images.push(ImageFile::new(
+                image_file.as_str(),
+                full_path.as_path(),
+                width,
+                height,
+                format,
+            ));
             
         }
 
@@ -730,7 +720,6 @@ struct LoadDatabaseProgressReport {
     video_file_name: String,
     total_frames_processed: u32,
     dropped_frames: u32,
-    time: Option<u128>,
     database: Option<VideoColorIndexDatabase>,
 }
 
@@ -755,7 +744,6 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
         let mut reader = io::BufReader::with_capacity(256 * 1024, data_file);
 
         let mut dropped_frames: u32 = 0;
-        let timer = Instant::now();
 
         let max_line_length = 222;
         let mut line = String::with_capacity(max_line_length);
@@ -875,7 +863,6 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
                     video_file_name: video_file_name.clone(),
                     total_frames_processed: total_frames_added,
                     dropped_frames,
-                    time: None,
                     database: None,
                 }).unwrap();
             }
@@ -888,7 +875,6 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
             video_file_name: video_file_name,
             total_frames_processed: total_frames_added,
             dropped_frames,
-            time: Some(timer.elapsed().as_millis()),
             database: Some(color_database),
         }).unwrap();
     });
@@ -988,19 +974,26 @@ fn calculate_image_colors(app: &App) -> Receiver<Vec<ImageTile>> {
     rc
 }
 
-fn find_matches(chosen_image: &ImageFile, app: &App) -> Receiver<FrameMatch> {
-    let mut matcher = ColorMatcher::new(app.mosaic_tiles_x, app.mosaic_tiles_y);
+fn find_matches(app: &mut App) -> Receiver<FrameMatch> {
+    let chosen_image = app.images.iter_mut()
+        .find(|i| i.is_chosen && i.image_tiles.is_some());
 
-    matcher.set_thread_count(app.system_info.max_allowed_cores());
+    if let Some(chosen_image) = chosen_image {
+        let mut matcher = ColorMatcher::new(app.mosaic_tiles_x, app.mosaic_tiles_y);
 
-    let videos = app.videos.iter()
-        .filter(|v| v.is_chosen && v.database.is_some());
+        matcher.set_thread_count(app.system_info.max_allowed_cores());
 
-    for video in videos {
-        if let Some(database) = &video.database {
-            matcher.add_database(&video.metadata.file_name, database);
+        let videos = app.videos.iter()
+            .filter(|v| v.is_chosen && v.database.is_some());
+
+        for video in videos {
+            if let Some(database) = &video.database {
+                matcher.add_database(&video.metadata.file_name, database);
+            }
         }
+
+        return matcher.match_tiles(chosen_image).unwrap();
     }
 
-    matcher.match_tiles(chosen_image).unwrap()
+    panic!("No image");
 }

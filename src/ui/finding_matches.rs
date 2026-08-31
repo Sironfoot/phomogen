@@ -19,12 +19,16 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
         header_section,
         image_preview_section,
         progress_section,
+        timer_section,
+        continue_section,
     ] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
             Constraint::Min(1),
             Constraint::Length(3),
+            Constraint::Length(2),
+            Constraint::Length(1)
         ])
         .spacing(1)
         .areas(inner);
@@ -83,11 +87,14 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
         }
     }
 
+    let mut is_finished = false;
+
     let choden_image = app.images.iter()
         .find(|i| i.is_chosen && i.image_tiles.is_some());
 
     if let Some(image) = choden_image {
         if let Some(image_tiles) = image.image_tiles.as_ref() {
+            // progress
             let num_tiles_to_match = image_tiles.len() as u32;
             let mut num_tiles_matched: u32 = 0;
 
@@ -104,6 +111,28 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
                 .percent(percentage.round() as u16);
 
             frame.render_widget(video_progress_guage, progress_section);
+
+            is_finished = percentage == 100.0;
+
+            // timer
+            let timer_text = format!("Timer: {:.2} s", app.timer_ellapsed().as_secs_f64());
+            let timer = Paragraph::new(
+                Text::styled(timer_text, Style::default().fg(Color::White))
+            )
+            .wrap(Wrap::default())
+            .alignment(ratatui::layout::HorizontalAlignment::Center);
+
+            frame.render_widget(timer, timer_section);
         }
+    }
+
+    if is_finished {
+        let continue_text = Paragraph::new(
+            Text::styled("Press (Space) to continue", Style::default().fg(Color::Green))
+        )
+        .wrap(Wrap::default())
+        .alignment(ratatui::layout::HorizontalAlignment::Center);
+
+        frame.render_widget(continue_text, continue_section);
     }
 }

@@ -1,10 +1,10 @@
-use std::{collections::HashMap, sync::mpsc::{self, Receiver}, thread::{self}};
+use std::{collections::HashMap, sync::{Arc, mpsc::{self, Receiver}}, thread::{self}};
 
 use anyhow::Result;
 
 use crate::app::{ImageFile, ImageTile, frame_data::{Color, VideoColorIndexDatabase}};
 
-pub struct ColorMatcher<'database> {
+pub struct ColorMatcher {
     pub red_bias: u64,
     pub green_bias: u64,
     pub blue_bias: u64,
@@ -14,10 +14,10 @@ pub struct ColorMatcher<'database> {
 
     num_workers: u32,
 
-    databases: HashMap<String, &'database VideoColorIndexDatabase>,
+    databases: HashMap<String, Arc<VideoColorIndexDatabase>>,
 }
 
-impl<'database> ColorMatcher<'database> {
+impl ColorMatcher {
     pub fn new(mosaic_tiles_x: u32, mosaic_tiles_y: u32) -> Self {
         Self {
             red_bias: 3,
@@ -38,59 +38,63 @@ impl<'database> ColorMatcher<'database> {
         self.num_workers = threads.max(1);
     }
 
-    pub fn add_database(&mut self, video_file_name: &str, database: &'database VideoColorIndexDatabase) {
-        self.databases.insert(String::from(video_file_name), database);
+    pub fn add_database(&mut self, video_file_name: &str, database: &Arc<VideoColorIndexDatabase>) {
+        self.databases.insert(String::from(video_file_name), Arc::clone(database));
     }
 
-    pub fn match_tiles(&self, image: &ImageFile) -> Result<Receiver<FrameMatch>> {
+    pub fn match_tiles(self, image: &ImageFile) -> Result<Receiver<FrameMatch>> {
         let Some(image_tiles) = &image.image_tiles else {
             return Err(anyhow::format_err!("image doesn't contain any tile data"));
         };
 
-        let num_mosaic_tiles = self.mosaic_tiles_x * self.mosaic_tiles_y;
+        let image_tiles = Arc::clone(image_tiles);
+        let matcher = Arc::new(self);
+
+        let num_mosaic_tiles = matcher.mosaic_tiles_x * matcher.mosaic_tiles_y;
 
         //let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(self.num_workers as usize);
         let (tx, rc) = mpsc::channel::<FrameMatch>();
 
         // 10 frames / 3 threads: 10 / 3 floored = 3
-        let tiles_per_worker = f64::floor(num_mosaic_tiles as f64 / self.num_workers as f64) as u32;
+        let tiles_per_worker = f64::floor(num_mosaic_tiles as f64 / matcher.num_workers as f64) as u32;
         // remainder on division 10 / 3 = 1
-        let remainder_tiles =  num_mosaic_tiles % self.num_workers;
+        let remainder_tiles =  num_mosaic_tiles % matcher.num_workers;
 
-        thread::scope(|scope| {
-            for worker_index in 0..self.num_workers {
-                let is_last = worker_index == (self.num_workers - 1);
+        for worker_index in 0..matcher.num_workers {
+            let is_last = worker_index == (matcher.num_workers - 1);
 
-                let starting_tile_index = worker_index * tiles_per_worker;
+            let starting_tile_index = worker_index * tiles_per_worker;
 
-                //  10 tiles / 3 threads, thread 1 = 1,2,3, thread 2 = 4,5,6, thread 3 = 6,7,8,10
-                let ending_tile_index = match is_last {
-                    true => (starting_tile_index + tiles_per_worker) + remainder_tiles,
-                    false => starting_tile_index + tiles_per_worker
-                };
+            //  10 tiles / 3 threads, thread 1 = 1,2,3, thread 2 = 4,5,6, thread 3 = 6,7,8,10
+            let ending_tile_index = match is_last {
+                true => (starting_tile_index + tiles_per_worker) + remainder_tiles,
+                false => starting_tile_index + tiles_per_worker
+            };
 
-                let worker_tiles = &image_tiles[starting_tile_index as usize..ending_tile_index as usize];
+            let matcher = Arc::clone(&matcher);
+            let image_tiles = Arc::clone(&image_tiles);
+            let tx = tx.clone();
 
-                let database = &self.databases;
-                let tx = tx.clone();
+            thread::spawn(move || {
+                for tile_index in starting_tile_index..ending_tile_index {
+                    let tile = &image_tiles[tile_index as usize];
 
-                scope.spawn(move || {
-                    for (offset, tile) in worker_tiles.iter().enumerate() {
-                        let tile_index = starting_tile_index + offset as u32;
+                    let frame_match = matcher.find_nearest_color(tile, tile_index);
 
-                        let frame_match = self.find_nearest_color(database, tile, tile_index);
-                        tx.send(frame_match).unwrap();
+                     if tx.send(frame_match).is_err() {
+                        // The receiver was dropped, so stop working.
+                        break;
                     }
-                });
-            }
+                }
+            });
+        }
 
-            drop(tx);
-        });
+        drop(tx);
 
         Ok(rc)
     }
 
-    fn find_nearest_color(&self, databases: &HashMap<String, &VideoColorIndexDatabase>, candidate: &ImageTile, tile_index: u32) -> FrameMatch {
+    fn find_nearest_color(&self, candidate: &ImageTile, tile_index: u32) -> FrameMatch {
         let mut nearest_match = FrameMatch {
             tile_index,
             video_filename: String::new(),
@@ -103,7 +107,7 @@ impl<'database> ColorMatcher<'database> {
 
         let mut smallest_distance = std::u64::MAX;
         
-        for (video_filename, database) in databases {
+        for (video_filename, database) in &self.databases {
             let mut match_found_in_database = false;
 
             for frame in database.frames() {

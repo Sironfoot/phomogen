@@ -3,7 +3,7 @@ pub use system_info::SystemInfo;
 
 pub mod frame_data;
 
-use std::{ops::Add, path::{Path, PathBuf}, time::Duration};
+use std::{ops::Add, path::{Path, PathBuf}, sync::Arc, time::{Duration, Instant}};
 
 use image::DynamicImage;
 
@@ -30,7 +30,8 @@ pub struct App {
     pub current_image_index: u32,
     pub images: Vec<ImageFile>,
 
-    pub temp_time: u128,
+    timer: Instant,
+    stopped_ellapsed: Option<Duration>,
 }
 
 pub struct VideoFile {
@@ -39,7 +40,8 @@ pub struct VideoFile {
     pub database_path: Option<PathBuf>,
 
     pub indexing_report: Option<VideoIndexingReport>,
-    pub database: Option<VideoColorIndexDatabase>,
+
+    pub database: Option<Arc<VideoColorIndexDatabase>>,
     pub total_database_frames_loaded: u32,
     pub total_dropped_frames: u32,
 }
@@ -67,8 +69,25 @@ pub struct ImageFile {
     pub preview: Option<DynamicImage>, 
     pub is_chosen: bool,
 
-    pub image_tiles: Option<Vec<ImageTile>>,
+    pub image_tiles: Option<Arc<Vec<ImageTile>>>,
+
     pub matched_tiles: Option<Vec<FrameMatch>>,
+}
+
+impl ImageFile {
+    pub fn new(file_name: &str, full_path: &Path, width: u32, height: u32, format: ImageType) -> ImageFile {
+        ImageFile {
+            file_name: String::from(file_name),
+            full_path: PathBuf::from(full_path),
+            width,
+            height,
+            format,
+            preview: None,
+            is_chosen: false,
+            image_tiles: None,
+            matched_tiles: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -186,8 +205,26 @@ impl App {
             color_extraction_algorithm: ColorExtractionAlgorithm::PixelArrayTraversal,
             current_image_index: 0,
             images: vec![],
-            temp_time: 0,
+            timer: Instant::now(),
+            stopped_ellapsed: None,
         }
+    }
+
+    pub fn reset_timer(&mut self) {
+        self.timer = Instant::now();
+        self.stopped_ellapsed = None;
+    }
+
+    pub fn stop_timer(&mut self) {
+        self.stopped_ellapsed = Some(self.timer.elapsed());
+    }
+
+    pub fn timer_ellapsed(&self) -> Duration {
+        if let Some(stopped_timer) = self.stopped_ellapsed {
+            return stopped_timer;
+        }
+
+        self.timer.elapsed()
     }
 
     pub fn set_mosaic_tiles(&mut self, num_x: u32, num_y: u32) {
