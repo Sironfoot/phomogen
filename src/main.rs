@@ -232,12 +232,52 @@ where
                             image.image_tiles = Some(image_tiles);
                             calculate_image_colors_receiver = None;
 
-                            app.stage = AppStage::FindMatches;
+                            app.stage = AppStage::FindingMatches;
                             should_render = true;
                         }
                     }
                 }
             },
+
+            AppStage::FindingMatches => {
+                if find_matches_receiver.is_none() {
+                    let chosen_image = app.images.iter()
+                        .find(|i| i.is_chosen && i.image_tiles.is_some());
+                    if let Some(chosen_image) = chosen_image {
+                        find_matches_receiver = Some(find_matches(chosen_image, app))
+                    }
+                }
+
+                println!("HERE!!");
+
+                if let Some(rc) = &find_matches_receiver {
+                    let matches: Vec<FrameMatch> = rc.try_iter().collect();
+
+                   
+
+                    if matches.len() > 0 {
+                        let chosen_image = app.images.iter_mut()
+                            .find(|i| i.is_chosen && i.image_tiles.is_some());
+
+                        if let Some(chosen_image) = chosen_image {
+                            if chosen_image.matched_tiles.is_none() {
+                                chosen_image.matched_tiles = Some(vec![]);
+                            }
+
+                            for frame_match in matches {
+                                chosen_image.matched_tiles.as_mut().unwrap().push(frame_match);
+                                should_render = true;
+                            }
+
+                            let total_mosaic_tiles = app.mosaic_tiles_x * app.mosaic_tiles_y;
+
+                            if chosen_image.matched_tiles.as_ref().unwrap().len() == total_mosaic_tiles as usize {
+                                // move to next screen
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -674,6 +714,7 @@ fn read_image_files(app: &App) -> Receiver<Vec<ImageFile>> {
                 preview: None,
                 is_chosen: false,
                 image_tiles: None,
+                matched_tiles: None,
             });
             
         }
@@ -949,6 +990,8 @@ fn calculate_image_colors(app: &App) -> Receiver<Vec<ImageTile>> {
 
 fn find_matches(chosen_image: &ImageFile, app: &App) -> Receiver<FrameMatch> {
     let mut matcher = ColorMatcher::new(app.mosaic_tiles_x, app.mosaic_tiles_y);
+
+    matcher.set_thread_count(app.system_info.max_allowed_cores());
 
     let videos = app.videos.iter()
         .filter(|v| v.is_chosen && v.database.is_some());

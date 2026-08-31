@@ -7,7 +7,7 @@ use std::{ops::Add, path::{Path, PathBuf}, time::Duration};
 
 use image::DynamicImage;
 
-use crate::{app::frame_data::Color, ffmpeg::{VideoMetadata, color_extractor::ColorExtractionAlgorithm}};
+use crate::{app::frame_data::Color, color_matcher::FrameMatch, ffmpeg::{VideoMetadata, color_extractor::ColorExtractionAlgorithm}};
 use crate::app::frame_data::VideoColorIndexDatabase;
 
 pub struct App {
@@ -68,6 +68,7 @@ pub struct ImageFile {
     pub is_chosen: bool,
 
     pub image_tiles: Option<Vec<ImageTile>>,
+    pub matched_tiles: Option<Vec<FrameMatch>>,
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +246,6 @@ pub enum AppStage {
     LoadMosaicDatabase,
     ImageSelect,
     ProcessImage,
-    FindMatches,
+    FindingMatches,
     Quitting,
 }

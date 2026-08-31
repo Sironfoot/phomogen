@@ -4,6 +4,7 @@ pub mod video_selection;
 pub mod generate_database;
 pub mod load_databaqse;
 pub mod image_selection;
+pub mod finding_matches;
 
 use ratatui::{
     Frame,
@@ -49,6 +50,7 @@ pub fn render_ui(frame: &mut Frame, app: &mut App){
         AppStage::GenerateMosaicDatabase => generate_database::render(frame, main_content, app),
         AppStage::LoadMosaicDatabase => load_databaqse::render(frame, main_content, app),
         AppStage::ImageSelect => image_selection::render(frame, main_content, app),
+        AppStage::FindingMatches => finding_matches::render(frame, main_content, app),
         _ => under_construction::render(frame, main_content),
     };
 
