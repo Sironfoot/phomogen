@@ -1,6 +1,7 @@
 pub mod app;
 pub mod ui;
 pub mod ffmpeg;
+pub mod color_matcher;
 
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver};
@@ -27,6 +28,7 @@ use ratatui::crossterm::terminal::{
 use anyhow::Result;
 
 use crate::app::{App, AppStage, ImageFile, ImageTile, ImageType, SystemInfo, VideoFile, VideoIndexCore, VideoIndexStatus, VideoIndexingReport};
+use crate::color_matcher::{ColorMatcher, FrameMatch};
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm, ColorExtractionProgress, ColorExtractor};
 use crate::ui::render_ui;
 use crate::ffmpeg::VideoMetadata;
@@ -81,6 +83,7 @@ where
     let mut color_extractor_receiver: Option<Receiver<VideoIndexingReport>> = None;
     let mut load_database_receiver: Option<Receiver<LoadDatabaseProgressReport>> = None;
     let mut calculate_image_colors_receiver: Option<Receiver<Vec<ImageTile>>> = None;
+    let mut find_matches_receiver: Option<Receiver<FrameMatch>> = None;
 
     let mut should_render = true;
 
@@ -227,10 +230,10 @@ where
                     if let Ok(image_tiles) = rc.try_recv() {
                         if let Some(image) = app.images.iter_mut().find(|i| i.is_chosen) {
                             image.image_tiles = Some(image_tiles);
-                            should_render = true;
-                            //calculate_image_colors_receiver = None;
+                            calculate_image_colors_receiver = None;
 
-                            println!("{:?}", image.image_tiles);
+                            app.stage = AppStage::FindMatches;
+                            should_render = true;
                         }
                     }
                 }
@@ -942,4 +945,19 @@ fn calculate_image_colors(app: &App) -> Receiver<Vec<ImageTile>> {
     });
 
     rc
+}
+
+fn find_matches(chosen_image: &ImageFile, app: &App) -> Receiver<FrameMatch> {
+    let mut matcher = ColorMatcher::new(app.mosaic_tiles_x, app.mosaic_tiles_y);
+
+    let videos = app.videos.iter()
+        .filter(|v| v.is_chosen && v.database.is_some());
+
+    for video in videos {
+        if let Some(database) = &video.database {
+            matcher.add_database(&video.metadata.file_name, database);
+        }
+    }
+
+    matcher.match_tiles(chosen_image).unwrap()
 }

@@ -70,7 +70,7 @@ pub struct ImageFile {
     pub image_tiles: Option<Vec<ImageTile>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ImageTile {
     pub colors: Vec<Color>,
 }
@@ -245,5 +245,6 @@ pub enum AppStage {
     LoadMosaicDatabase,
     ImageSelect,
     ProcessImage,
+    FindMatches,
     Quitting,
 }
