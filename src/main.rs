@@ -2,6 +2,7 @@ pub mod app;
 pub mod ui;
 pub mod ffmpeg;
 pub mod color_matcher;
+pub mod tile_blender;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -32,6 +33,7 @@ use crate::app::{App, AppStage, ImageFile, ImageTile, ImageType, SystemInfo, Vid
 use crate::color_matcher::{ColorMatcher, FrameMatch};
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm, ColorExtractionProgress, ColorExtractor};
 use crate::ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch};
+use crate::tile_blender::TileBlender;
 use crate::ui::render_ui;
 use crate::ffmpeg::VideoMetadata;
 use crate::app::frame_data::{Color, FrameCrop, FrameData, VideoColorIndexDatabase};
@@ -1140,7 +1142,10 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
                     let col = tile.tile_index % mosaic_tiles_x;
 
                     let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-                    tile.data.save(tile_path).unwrap();
+
+                    // TODO: don't hard code dimensions
+                    let resized = imageops::resize(&tile.data, 960, 540, FilterType::Triangle);
+                    resized.save(tile_path).unwrap();
 
                     progress_sender.send(MosaicGenerationReport {
                         tile_index: tile.tile_index,
@@ -1182,9 +1187,34 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
 
             let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
             let tile_image = image::open(tile_path).unwrap();
-            let image = tile_image.as_rgb8().unwrap();
+            let mut image = tile_image.into_rgb8();
+
+            let tile_blender = TileBlender::new(row, col, mosaic_tiles_x, mosaic_tiles_y);
+
+            let top_image = tile_blender.find_top().map(|(row, col)| {
+                let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
+                image::open(tile_path).unwrap().into_rgb8()
+            });
+
+            let right_image = tile_blender.find_right().map(|(row, col)| {
+                let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
+                image::open(tile_path).unwrap().into_rgb8()
+            });
+
+            let bottom_image = tile_blender.find_bottom().map(|(row, col)| {
+                let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
+                image::open(tile_path).unwrap().into_rgb8()
+            });
+
+            let left_image = tile_blender.find_left().map(|(row, col)| {
+                let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
+                image::open(tile_path).unwrap().into_rgb8()
+            });
+
+            tile_blender.blend_image(&mut image, top_image.as_ref(), right_image.as_ref(), bottom_image.as_ref(), left_image.as_ref()).unwrap();
+
             let resized = imageops::resize(
-                image, tile_width, tile_height, FilterType::Triangle);
+                &image, tile_width, tile_height, FilterType::Triangle);
 
             canvas.copy_from(&resized, col * tile_width, row * tile_height).unwrap();
         }
