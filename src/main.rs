@@ -1094,6 +1094,7 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
         }
 
         let num_workers = max_allowed_cores / 1;
+        let num_ffmpeg_threads: u32 = 4;
 
         for (video_filname, video_frame_matches) in video_frame_matches {
             if let Some(video) = videos.iter().find(|v| v.file_name == video_filname) {
@@ -1128,7 +1129,7 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
                             starting_frame_index,
                             ending_frame_index);
 
-                        frame_extractor.set_max_threads(1);
+                        frame_extractor.set_max_threads(num_ffmpeg_threads);
                         frame_extractor.run(&frame_matches, tx).unwrap();
                     }));
                 }
@@ -1192,6 +1193,8 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
         let mosaic_image_name = format!("{image_filename}_mosaic_{mosaic_tiles_x}x{mosaic_tiles_y}.png");
         let image_path = working_dir.join(&mosaic_image_name);
         canvas.save(image_path).unwrap();
+
+        fs::remove_dir_all(&temp_mosaic_dir).unwrap();
     });
 
     Ok(progress_receiver)

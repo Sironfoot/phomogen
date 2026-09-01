@@ -1,6 +1,6 @@
 use std::{cmp, io::Read, process::{Command, Stdio}, sync::mpsc};
 use anyhow::Result;
-use image::{DynamicImage, RgbImage, imageops};
+use image::{DynamicImage, ImageBuffer, Rgb, RgbImage, imageops};
 
 use crate::ffmpeg::VideoMetadata;
 
@@ -114,33 +114,29 @@ impl FrameExtractor {
                 Ok(()) => {
                     if frame_indices.contains(&current_frame_index) {
                         let image = RgbImage::from_raw(
-                            frame_width, frame_height,  buffer.to_vec()).unwrap();
+                            frame_width, frame_height, buffer.to_vec()).unwrap();
 
                         let matches = matched_frames.iter()
                             .filter(|frame_match| frame_match.frame_index == current_frame_index);
 
                         for matched_frame in matches {
-                            let mut image = image.clone();
-
-                            if matched_frame.crop_resize < 100.0 {
-                                let pos_x = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_pos_x) as u32;
-                                let pos_y = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_pos_y) as u32;
+                            let pos_x = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_pos_x) as u32;
+                            let pos_y = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_pos_y) as u32;
+                        
+                            let cropped_width = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_resize) as u32;
+                            let cropped_height = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_resize) as u32;
+                        
+                            let mut crop = imageops::crop_imm(&image, pos_x, pos_y, cropped_width, cropped_height).to_image();
                             
-                                let cropped_width = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_resize) as u32;
-                                let cropped_height = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_resize) as u32;
-                            
-                                image = imageops::crop(&mut image, pos_x, pos_y, cropped_width, cropped_height).to_image();
-                            }
-
                             if matched_frame.is_flipped {
-                                imageops::flip_horizontal_in_place(&mut image);
+                                imageops::flip_horizontal_in_place(&mut crop);
                             }
 
                             let tile_data = ImageTileData {
                                 tile_index: matched_frame.tile_index,
-                                data: DynamicImage::ImageRgb8(image),
+                                data: DynamicImage::ImageRgb8(crop),
                             };
-
+                            
                             tx.send(tile_data).unwrap();
                         }
                     }
