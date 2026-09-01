@@ -61,7 +61,7 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(&working_dir, sys_info);
-    app.set_mosaic_tiles(10, 10);
+    app.set_mosaic_tiles(40, 40);
 
     run_app(&mut terminal, &mut app)?;
 
@@ -1140,7 +1140,6 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
         let is_landscape = image_width > image_height;
 
         let target_width = if is_landscape { LARGEST_DIMENSION } else { smallest_dimension };
-        //let target_height = if is_landscape { smallest_dimension } else { LARGEST_DIMENSION };
 
         let tile_width = (target_width as f64 / mosaic_tiles_x as f64).round() as u32;
         let tile_height = (tile_width as f64 / ratio as f64).round() as u32;

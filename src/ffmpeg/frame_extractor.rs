@@ -71,29 +71,19 @@ impl FrameExtractor {
         frame_indices.sort_unstable();
         frame_indices.dedup();
 
-        // select=eq(n\,123)+eq(n\,4635)+eq(n\,8291)
-        let select = frame_indices.iter()
-            .map(|index| format!("eq(n\\,{index})"))
-            .collect::<Vec<_>>()
-            .join("+");
+        let start_frame_index = frame_indices[0];
+        let last_frame_index = frame_indices[frame_indices.len() - 1];
 
-        let select_flag = format!("select={select}");
-
-        // scale=1920:-1:flags=area
-        let scale_flag = &format!("scale={}:-2:flags=area", self.resize_width);
-
-        // ensure select comes before scale, so ffmpeg only scales the selected frames
-        // -vf "select=eq(n\,123)+eq(n\,4635)+eq(n\,8291),scale=1920:-2:flags=area"
-        let video_filter = format!("{select_flag},{scale_flag}");
+        let seconds_to_target_frame = start_frame_index as f64 / self.video.frame_rate;
 
         let mut child = Command::new("ffmpeg")
             .args([
                 //"-hwaccel", "auto", // TODO: need to detect GPU decode is available, fall back to CPU
                 "-threads", &format!("{}", self.max_ffmpeg_threads),
+                "-ss", &format!("{seconds_to_target_frame}"),
                 "-i"]).arg(&self.video.full_path)
             .args([
-                "-vf", &video_filter,
-                "-fps_mode", "passthrough",
+                "-vf", &format!("scale={}:-2:flags=area", self.resize_width),
 
                 // No audio/subtitles/data output
                 "-an",
@@ -116,45 +106,50 @@ impl FrameExtractor {
         let mut stdout = child.stdout.take().unwrap();
         let mut buffer = vec![0u8; frame_size as usize];
 
-        let mut output_index: usize = 0;
+        let mut frame_index: u32 = start_frame_index;
 
         loop {
             match stdout.read_exact(&mut buffer) {
                 Ok(()) => {
-                    let frame_index = frame_indices[output_index];
+                    if frame_indices.contains(&frame_index) {
+                        let image = RgbImage::from_raw(
+                            frame_width, frame_height,  buffer.to_vec()).unwrap();
 
-                    let image = RgbImage::from_raw(
-                        frame_width, frame_height,  buffer.to_vec()).unwrap();
+                        let matches = matched_frames.iter()
+                            .filter(|frame_match| frame_match.frame_index == frame_index);
 
-                    let matches = matched_frames.iter()
-                        .filter(|frame_match| frame_match.frame_index == frame_index);
+                        for matched_frame in matches {
+                            let mut image = image.clone();
 
-                    for matched_frame in matches {
-                        let mut image = image.clone();
+                            if matched_frame.crop_resize < 100.0 {
+                                let pos_x = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_pos_x) as u32;
+                                let pos_y = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_pos_y) as u32;
+                            
+                                let cropped_width = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_resize) as u32;
+                                let cropped_height = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_resize) as u32;
+                            
+                                image = imageops::crop(&mut image, pos_x, pos_y, cropped_width, cropped_height).to_image();
+                            }
 
-                        if matched_frame.crop_resize < 100.0 {
-                            let pos_x = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_pos_x) as u32;
-                            let pos_y = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_pos_y) as u32;
-                        
-                            let cropped_width = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_resize) as u32;
-                            let cropped_height = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_resize) as u32;
-                        
-                            image = imageops::crop(&mut image, pos_x, pos_y, cropped_width, cropped_height).to_image();
+                            if matched_frame.is_flipped {
+                                imageops::flip_horizontal_in_place(&mut image);
+                            }
+
+                            let tile_data = ImageTileData {
+                                tile_index: matched_frame.tile_index,
+                                data: DynamicImage::ImageRgb8(image),
+                            };
+
+                            tx.send(tile_data).unwrap();
                         }
-
-                        if matched_frame.is_flipped {
-                            imageops::flip_horizontal_in_place(&mut image);
-                        }
-
-                        let tile_data = ImageTileData {
-                            tile_index: matched_frame.tile_index,
-                            data: DynamicImage::ImageRgb8(image),
-                        };
-
-                        tx.send(tile_data).unwrap();
                     }
 
-                    output_index += 1;
+                    frame_index += 1;
+
+                    if frame_index > last_frame_index {
+                        child.kill().unwrap();
+                        break;
+                    }
                 },
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
                     break;
