@@ -227,6 +227,11 @@ impl App {
         self.timer.elapsed()
     }
 
+    pub fn set_color_tiles(&mut self, num_x: u32, num_y: u32) {
+        self.tiles_x = num_x;
+        self.tiles_y = num_y;
+    }
+
     pub fn set_mosaic_tiles(&mut self, num_x: u32, num_y: u32) {
         self.mosaic_tiles_x = num_x;
         self.mosaic_tiles_y = num_y;
