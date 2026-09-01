@@ -10,7 +10,7 @@ const SMALLEST_RESIZED_WIDTH:u32 = 640;
 const DEFAULT_MAX_FFMPEG_THREADS: u32 = 4;
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VideoFrameMatch {
     pub tile_index: u32,
     pub frame_index: u32,
@@ -30,18 +30,23 @@ pub struct FrameExtractor {
     pub instance_id: u32,
     video: VideoMetadata,
 
+    starting_frame_index: u32,
+    ending_frame_index: u32,
+
     max_ffmpeg_threads: u32,
     resize_width: u32,
 }
 
 impl FrameExtractor {
-    pub fn new(instance_id: u32, video: VideoMetadata) -> Self {
+    pub fn new(instance_id: u32, video: VideoMetadata, starting_frame_index: u32, ending_frame_index: u32) -> Self {
         let resize_width = cmp::min(DEFAULT_RESIZE_WIDTH, video.width);
         let max_ffmpeg_threads = DEFAULT_MAX_FFMPEG_THREADS;
 
         Self {
             instance_id,
             video,
+            starting_frame_index,
+            ending_frame_index,
             max_ffmpeg_threads: max_ffmpeg_threads,
             resize_width: resize_width,
         }
@@ -63,7 +68,6 @@ impl FrameExtractor {
         let frame_width = self.resize_width;
         let frame_height = (frame_width as f64 / self.video.aspect_ratio.ratio()).round() as u32;
 
-        // generate an ffmpeg flag that tells ffmpeg to extract specific frames
         let mut frame_indices = matched_frames.iter()
             .map(|frame| frame.frame_index)
             .collect::<Vec<u32>>();
@@ -71,14 +75,11 @@ impl FrameExtractor {
         frame_indices.sort_unstable();
         frame_indices.dedup();
 
-        let start_frame_index = frame_indices[0];
-        let last_frame_index = frame_indices[frame_indices.len() - 1];
-
-        let seconds_to_target_frame = start_frame_index as f64 / self.video.frame_rate;
+        let seconds_to_target_frame = self.starting_frame_index as f64 / self.video.frame_rate;
 
         let mut child = Command::new("ffmpeg")
             .args([
-                //"-hwaccel", "auto", // TODO: need to detect GPU decode is available, fall back to CPU
+                "-hwaccel", "auto", // TODO: need to detect GPU decode is available, fall back to CPU
                 "-threads", &format!("{}", self.max_ffmpeg_threads),
                 "-ss", &format!("{seconds_to_target_frame}"),
                 "-i"]).arg(&self.video.full_path)
@@ -106,17 +107,17 @@ impl FrameExtractor {
         let mut stdout = child.stdout.take().unwrap();
         let mut buffer = vec![0u8; frame_size as usize];
 
-        let mut frame_index: u32 = start_frame_index;
-
+        let mut current_frame_index: u32 = self.starting_frame_index;
+        
         loop {
             match stdout.read_exact(&mut buffer) {
                 Ok(()) => {
-                    if frame_indices.contains(&frame_index) {
+                    if frame_indices.contains(&current_frame_index) {
                         let image = RgbImage::from_raw(
                             frame_width, frame_height,  buffer.to_vec()).unwrap();
 
                         let matches = matched_frames.iter()
-                            .filter(|frame_match| frame_match.frame_index == frame_index);
+                            .filter(|frame_match| frame_match.frame_index == current_frame_index);
 
                         for matched_frame in matches {
                             let mut image = image.clone();
@@ -144,9 +145,9 @@ impl FrameExtractor {
                         }
                     }
 
-                    frame_index += 1;
+                    current_frame_index += 1;
 
-                    if frame_index > last_frame_index {
+                    if current_frame_index > self.ending_frame_index {
                         child.kill().unwrap();
                         break;
                     }

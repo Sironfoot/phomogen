@@ -1042,6 +1042,8 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
     let mosaic_tiles_x = app.mosaic_tiles_x;
     let mosaic_tiles_y = app.mosaic_tiles_y;
 
+    let max_allowed_cores = app.system_info.max_allowed_cores();
+
     let frame_matches = frame_matches.clone();
     let mut video_filenames = frame_matches.iter()
         .map(|f| f.video_filename.clone())
@@ -1073,8 +1075,6 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
             fs::create_dir(&temp_mosaic_dir).unwrap();
         }
 
-        let (tx, rc) = mpsc::channel::<ImageTileData>();
-
         let mut video_frame_matches: HashMap<&str, Vec<VideoFrameMatch>> = HashMap::new();
 
         // group into videos
@@ -1093,39 +1093,66 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
             });
         }
 
-        let mut workers: Vec<JoinHandle<()>> = vec![];
+        let num_workers = max_allowed_cores / 1;
 
         for (video_filname, video_frame_matches) in video_frame_matches {
             if let Some(video) = videos.iter().find(|v| v.file_name == video_filname) {
-                let video_metadata = video.clone();
-                let tx = tx.clone();
+            
+                let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(num_workers as usize);
+                let (tx, rc) = mpsc::channel::<ImageTileData>();
 
-                workers.push(thread::spawn(move || {
-                    let mut frame_extractor = FrameExtractor::new(0, video_metadata);
-                    frame_extractor.set_max_threads(18);
-                    frame_extractor.run(&video_frame_matches, tx).unwrap();
-                }));
+                // 10 frames / 3 threads: 10 / 3 floored = 3
+                let frames_per_worker = f64::floor(video.total_frames as f64 / num_workers as f64) as u32;
+                // remainder on division 10 / 3 = 1
+                let remaining_frames = video.total_frames as u32 % num_workers as u32;
+
+                for worker_index in 0..num_workers {
+                    let is_last = worker_index == (num_workers - 1);
+
+                    let starting_frame_index = worker_index as u32 * frames_per_worker;
+
+                    //  10 frames / 3 threads, thread 1 = 1,2,3, thread 2 = 4,5,6, thread 3 = 6,7,8,10
+                    let ending_frame_index = match is_last {
+                        true => (starting_frame_index + frames_per_worker) + remaining_frames,
+                        false => starting_frame_index + frames_per_worker
+                    };
+
+                    let video_metadata = video.clone();
+                    let tx = tx.clone();
+                    let frame_matches = video_frame_matches.clone();
+                    
+                    workers.push(thread::spawn(move || {
+                        let mut frame_extractor = FrameExtractor::new(
+                            worker_index,
+                            video_metadata,
+                            starting_frame_index,
+                            ending_frame_index);
+
+                        frame_extractor.set_max_threads(1);
+                        frame_extractor.run(&frame_matches, tx).unwrap();
+                    }));
+                }
+
+                drop(tx);
+
+                for tile in rc {
+                    let row = tile.tile_index / mosaic_tiles_x;
+                    let col = tile.tile_index % mosaic_tiles_x;
+
+                    let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
+                    tile.data.save(tile_path).unwrap();
+
+                    progress_sender.send(MosaicGenerationReport {
+                        tile_index: tile.tile_index,
+                        row,
+                        col,
+                    }).unwrap();
+                }
+
+                for worker in workers {
+                    worker.join().unwrap();
+                }
             }
-        }
-
-        drop(tx);
-
-        for tile in rc {
-            let row = tile.tile_index / mosaic_tiles_x;
-            let col = tile.tile_index % mosaic_tiles_x;
-
-            let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-            tile.data.save(tile_path).unwrap();
-
-            progress_sender.send(MosaicGenerationReport {
-                tile_index: tile.tile_index,
-                row,
-                col,
-            }).unwrap();
-        }
-
-        for worker in workers {
-            worker.join().unwrap();
         }
 
         // join images
