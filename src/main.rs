@@ -63,7 +63,7 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(&working_dir, sys_info);
-    app.set_mosaic_tiles(60, 60);
+    app.set_mosaic_tiles(50, 50);
     app.set_color_tiles(5, 5);
 
     run_app(&mut terminal, &mut app)?;
@@ -922,27 +922,43 @@ fn calculate_image_colors(app: &App) -> Receiver<Vec<ImageTile>> {
         let image_file = image::open(image_path).unwrap();
         let image_data = image_file.to_rgb8();
 
-        let width: u32 = 7680;
-        let height: u32 = 4320;
+        const LARGEST_DIMENSION: u32 = 10000;
+        let (image_width, image_height) = image_file.dimensions();
 
-        // resize to 8K image to reduce chance of fractional units with large number of tiles/sub-titles
+        let is_landscape = image_width > image_height;
+        let ratio = image_width as f64 / image_height as f64;
+
+        let smallest_dimension = if is_landscape {
+            (LARGEST_DIMENSION as f64 / ratio).round() as u32
+        }
+        else
+        {
+            (LARGEST_DIMENSION as f64 * ratio).round() as u32
+        };
+
+        let target_width: u32 = if is_landscape { LARGEST_DIMENSION } else { smallest_dimension };
+        let target_height: u32 = if is_landscape { smallest_dimension } else { LARGEST_DIMENSION };
+
+        let mosaic_tile_width = f64::round(target_width as f64 / mosaic_tiles_x as f64) as u32;
+        let mosaic_tile_height = f64::round(target_height as f64 / mosaic_tiles_y as f64) as u32;
+
+        let resize_width = mosaic_tile_width * mosaic_tiles_x;
+        let resize_height = mosaic_tile_height * mosaic_tiles_y;
+
         let image_data = imageops::resize(
-            &image_data, width, height, FilterType::Triangle);
-    
-        let tile_width = f64::round(width as f64 / mosaic_tiles_x as f64) as u32;
-        let tile_height = f64::round(height as f64 / mosaic_tiles_y as f64) as u32;
+            &image_data, resize_width, resize_height, FilterType::CatmullRom);
 
-        let sub_tile_width = f64::round(tile_width as f64 / tiles_x as f64) as u32;
-        let sub_tile_height = f64::round(tile_height as f64 / tiles_y as f64) as u32;
+        let color_tile_width = f64::round(mosaic_tile_width as f64 / tiles_x as f64) as u32;
+        let color_tile_height = f64::round(mosaic_tile_height as f64 / tiles_y as f64) as u32;
 
-        let total_sub_tile_pixels = sub_tile_width * sub_tile_height;
+        let total_sub_tile_pixels = color_tile_width * color_tile_height;
 
         for tile_y in 0..mosaic_tiles_y {
             for tile_x in 0..mosaic_tiles_x {
-                let start_x = tile_x * tile_width;
-                let start_y = tile_y * tile_height;
+                let start_x = tile_x * mosaic_tile_width;
+                let start_y = tile_y * mosaic_tile_height;
 
-                let sub_image = image_data.view(start_x, start_y, tile_width, tile_height);
+                let sub_image = image_data.view(start_x, start_y, mosaic_tile_width, mosaic_tile_height);
 
                 let mut tile_data = ImageTile {
                     colors: vec![]
@@ -950,11 +966,11 @@ fn calculate_image_colors(app: &App) -> Receiver<Vec<ImageTile>> {
                 
                 for sub_tile_y in 0..tiles_y {
                     for sub_tile_x in 0..tiles_x {
-                        let start_x = sub_tile_x * sub_tile_width;
-                        let end_x = cmp::min(start_x + sub_tile_width, tile_width);
+                        let start_x = sub_tile_x * color_tile_width;
+                        let end_x = cmp::min(start_x + color_tile_width, mosaic_tile_width);
 
-                        let start_y = sub_tile_y * sub_tile_height;
-                        let end_y = cmp::min(start_y + sub_tile_height, tile_height);
+                        let start_y = sub_tile_y * color_tile_height;
+                        let end_y = cmp::min(start_y + color_tile_height, mosaic_tile_height);
 
                         let mut total_red: u64 = 0;
                         let mut total_green: u64 = 0;
@@ -1094,7 +1110,7 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
             });
         }
 
-        let num_workers = max_allowed_cores / 1;
+        let num_workers = max_allowed_cores * 2;
         let num_ffmpeg_threads: u32 = 4;
 
         for (video_filname, video_frame_matches) in video_frame_matches {
