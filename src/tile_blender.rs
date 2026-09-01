@@ -3,8 +3,8 @@ use std::borrow::Cow;
 use image::{Rgb, RgbImage, imageops};
 use anyhow::Result;
 
-const DEFAULT_BLEND_WIDTH: u32 = 6;
-const DEFAULT_SAMPLE_LENGTH: u32 = 10;
+const DEFAULT_BLEND_WIDTH: u32 = 12;
+const DEFAULT_SAMPLE_LENGTH: u32 = 15;
 
 pub struct TileBlender {
     row: u32,
