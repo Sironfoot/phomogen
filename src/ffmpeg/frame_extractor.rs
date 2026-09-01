@@ -1,6 +1,6 @@
 use std::{cmp, io::Read, process::{Command, Stdio}, sync::mpsc};
 use anyhow::Result;
-use image::{DynamicImage, ImageBuffer, Rgb, RgbImage, imageops};
+use image::{DynamicImage, RgbImage, imageops};
 
 use crate::ffmpeg::VideoMetadata;
 
@@ -108,7 +108,7 @@ impl FrameExtractor {
         let mut buffer = vec![0u8; frame_size as usize];
 
         let mut current_frame_index: u32 = self.starting_frame_index;
-        
+
         loop {
             match stdout.read_exact(&mut buffer) {
                 Ok(()) => {

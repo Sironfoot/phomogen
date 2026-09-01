@@ -61,7 +61,8 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(&working_dir, sys_info);
-    app.set_mosaic_tiles(40, 40);
+    app.set_mosaic_tiles(60, 60);
+    app.set_color_tiles(5, 5);
 
     run_app(&mut terminal, &mut app)?;
 
@@ -564,10 +565,8 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
                 core.average_fps = extraction_progress.average_fps;
                 core.memory_usage = extraction_progress.memory_usage;
 
-                core.status = match core.percentage_complete() {
-                    100.0 => VideoIndexStatus::Finished,
-                    _ => VideoIndexStatus::Running,
-                };
+                let is_core_finished = core.total_frames == core.frames_processed;
+                core.status = if is_core_finished { VideoIndexStatus::Finished } else { VideoIndexStatus::Running };
             }
 
             let finished = inner_report.cores.iter()
