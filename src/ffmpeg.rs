@@ -9,3 +9,4 @@ pub use video_metadata::VideoMetadata;
 
 pub mod crops;
 pub mod color_extractor;
+pub mod frame_extractor;

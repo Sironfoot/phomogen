@@ -178,7 +178,7 @@ impl ColorMatcher {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FrameMatch {
     pub tile_index: u32,
 

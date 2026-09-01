@@ -13,7 +13,7 @@ use std::io::BufRead;
 use std::fs::{self, File};
 
 use image::imageops::FilterType;
-use image::{GenericImageView, ImageFormat, ImageReader, imageops};
+use image::{GenericImage, GenericImageView, ImageBuffer, ImageFormat, ImageReader, Rgb, RgbImage, imageops};
 
 use ratatui::{Terminal};
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -31,6 +31,7 @@ use anyhow::Result;
 use crate::app::{App, AppStage, ImageFile, ImageTile, ImageType, SystemInfo, VideoFile, VideoIndexCore, VideoIndexStatus, VideoIndexingReport};
 use crate::color_matcher::{ColorMatcher, FrameMatch};
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm, ColorExtractionProgress, ColorExtractor};
+use crate::ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch};
 use crate::ui::render_ui;
 use crate::ffmpeg::VideoMetadata;
 use crate::app::frame_data::{Color, FrameCrop, FrameData, VideoColorIndexDatabase};
@@ -60,7 +61,7 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(&working_dir, sys_info);
-    app.set_mosaic_tiles(40, 40);
+    app.set_mosaic_tiles(10, 10);
 
     run_app(&mut terminal, &mut app)?;
 
@@ -85,6 +86,7 @@ where
     let mut load_database_receiver: Option<Receiver<LoadDatabaseProgressReport>> = None;
     let mut calculate_image_colors_receiver: Option<Receiver<Vec<ImageTile>>> = None;
     let mut find_matches_receiver: Option<Receiver<FrameMatch>> = None;
+    let mut generate_mosaic_receiver: Option<Receiver<MosaicGenerationReport>> = None;
 
     let mut should_render = true;
 
@@ -265,10 +267,26 @@ where
                             let is_finished = completed_mosaic_tiles == total_mosaic_tiles;
                             if is_finished {
                                 app.stop_timer();
+                                app.stage = AppStage::GeneratingMosaic;
                             }
                         }
 
                         should_render = true;
+                    }
+                }
+            },
+            AppStage::GeneratingMosaic => {
+                if generate_mosaic_receiver.is_none() {
+                    generate_mosaic_receiver = Some(generate_mosaic(app).expect("Error"));
+                }
+
+                if let Some(rc) = &generate_mosaic_receiver {
+                    let reports: Vec<MosaicGenerationReport> = rc.try_iter().collect();
+
+                    if reports.len() > 0 {
+                        for _ in reports {
+                            
+                        }
                     }
                 }
             },
@@ -996,4 +1014,159 @@ fn find_matches(app: &mut App) -> Receiver<FrameMatch> {
     }
 
     panic!("No image");
+}
+
+struct MosaicGenerationReport {
+    tile_index: u32,
+    row: u32,
+    col: u32,
+}
+
+fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
+    let (progress_sender, progress_receiver) = mpsc::channel::<MosaicGenerationReport>();
+
+    let image_result = app.images.iter()
+        .find(|i| i.is_chosen);
+
+    let Some(chosen_image) = image_result else {
+        return Err(anyhow::format_err!("No chosen image found"));
+    };
+
+    let Some(frame_matches) = &chosen_image.matched_tiles else {
+        return Err(anyhow::format_err!("Image has no matched tiles"));
+    };
+
+    // copy what we need
+    let image_filename = chosen_image.file_name.clone();
+
+    let mosaic_tiles_x = app.mosaic_tiles_x;
+    let mosaic_tiles_y = app.mosaic_tiles_y;
+
+    let frame_matches = frame_matches.clone();
+    let mut video_filenames = frame_matches.iter()
+        .map(|f| f.video_filename.clone())
+        .collect::<Vec<_>>();
+
+    video_filenames.dedup();
+
+    let videos = app.videos.iter()
+        .filter(|v| video_filenames.contains(&v.metadata.file_name))
+        .map(|v| v.metadata.clone())
+        .collect::<Vec<_>>();
+
+    let working_dir = app.working_dir.clone();
+    let database_dir = app.database_dir.clone();
+
+    thread::spawn(move || {
+        // create the database folder
+        let database_dir_exists = fs::exists(&database_dir).unwrap_or(false);
+        if !database_dir_exists {
+            fs::create_dir(&database_dir).unwrap();
+        }
+
+        // create the temporary mosaic directory
+        let temp_mosaic_dir_name = format!("{image_filename}_temp");
+        let temp_mosaic_dir = database_dir.join(&temp_mosaic_dir_name);
+
+        let temp_mosaic_exists = fs::exists(&temp_mosaic_dir).unwrap_or(false);
+        if !temp_mosaic_exists {
+            fs::create_dir(&temp_mosaic_dir).unwrap();
+        }
+
+        let (tx, rc) = mpsc::channel::<ImageTileData>();
+
+        let mut video_frame_matches: HashMap<&str, Vec<VideoFrameMatch>> = HashMap::new();
+
+        // group into videos
+        for frame_match in &frame_matches {
+            let entry = video_frame_matches
+                .entry(frame_match.video_filename.as_str())
+                .or_insert_with(|| Vec::new());
+
+            entry.push(VideoFrameMatch {
+                tile_index: frame_match.tile_index,
+                frame_index: frame_match.frame_index,
+                crop_resize: frame_match.crop_resize,
+                crop_pos_x: frame_match.crop_pos_x,
+                crop_pos_y: frame_match.crop_pos_y,
+                is_flipped: frame_match.is_flipped,
+            });
+        }
+
+        let mut workers: Vec<JoinHandle<()>> = vec![];
+
+        for (video_filname, video_frame_matches) in video_frame_matches {
+            if let Some(video) = videos.iter().find(|v| v.file_name == video_filname) {
+                let video_metadata = video.clone();
+                let tx = tx.clone();
+
+                workers.push(thread::spawn(move || {
+                    let mut frame_extractor = FrameExtractor::new(0, video_metadata);
+                    frame_extractor.set_max_threads(18);
+                    frame_extractor.run(&video_frame_matches, tx).unwrap();
+                }));
+            }
+        }
+
+        drop(tx);
+
+        for tile in rc {
+            let row = tile.tile_index / mosaic_tiles_x;
+            let col = tile.tile_index % mosaic_tiles_x;
+
+            let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
+            tile.data.save(tile_path).unwrap();
+
+            progress_sender.send(MosaicGenerationReport {
+                tile_index: tile.tile_index,
+                row,
+                col,
+            }).unwrap();
+        }
+
+        for worker in workers {
+            worker.join().unwrap();
+        }
+
+        // join images
+        let image_width: u32 = 7680;
+        let image_height: u32 = 4320;
+
+        let ratio = image_width as f64 / image_height as f64;
+
+        const LARGEST_DIMENSION: u32 = 10000;
+        let smallest_dimension = (LARGEST_DIMENSION as f64 / ratio).round() as u32;
+
+        let is_landscape = image_width > image_height;
+
+        let target_width = if is_landscape { LARGEST_DIMENSION } else { smallest_dimension };
+        //let target_height = if is_landscape { smallest_dimension } else { LARGEST_DIMENSION };
+
+        let tile_width = (target_width as f64 / mosaic_tiles_x as f64).round() as u32;
+        let tile_height = (tile_width as f64 / ratio as f64).round() as u32;
+
+        let final_width = tile_width * mosaic_tiles_x;
+        let final_height = tile_height * mosaic_tiles_y;
+        
+        let mut canvas: ImageBuffer<Rgb<u8>, Vec<u8>> = RgbImage::new(final_width, final_height);
+
+        for frame_match in frame_matches {
+            let row = frame_match.tile_index / mosaic_tiles_x;
+            let col = frame_match.tile_index % mosaic_tiles_x;
+
+            let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
+            let tile_image = image::open(tile_path).unwrap();
+            let image = tile_image.as_rgb8().unwrap();
+            let resized = imageops::resize(
+                image, tile_width, tile_height, FilterType::Triangle);
+
+            canvas.copy_from(&resized, col * tile_width, row * tile_height).unwrap();
+        }
+
+        let mosaic_image_name = format!("{image_filename}_mosaic_{mosaic_tiles_x}x{mosaic_tiles_y}.png");
+        let image_path = working_dir.join(&mosaic_image_name);
+        canvas.save(image_path).unwrap();
+    });
+
+    Ok(progress_receiver)
 }

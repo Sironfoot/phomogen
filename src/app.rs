@@ -284,5 +284,6 @@ pub enum AppStage {
     ImageSelect,
     ProcessImage,
     FindingMatches,
+    GeneratingMosaic,
     Quitting,
 }

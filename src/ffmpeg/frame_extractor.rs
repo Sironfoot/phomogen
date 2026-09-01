@@ -1,0 +1,172 @@
+use std::{cmp, io::Read, process::{Command, Stdio}, sync::mpsc};
+use anyhow::Result;
+use image::{DynamicImage, RgbImage, imageops};
+
+use crate::ffmpeg::VideoMetadata;
+
+const BYTES_PER_PIXEL: u32 = 3;
+const DEFAULT_RESIZE_WIDTH: u32 = 1920;
+const SMALLEST_RESIZED_WIDTH:u32 = 640;
+const DEFAULT_MAX_FFMPEG_THREADS: u32 = 4;
+
+
+#[derive(Debug)]
+pub struct VideoFrameMatch {
+    pub tile_index: u32,
+    pub frame_index: u32,
+    
+    pub crop_resize: f64,
+    pub crop_pos_x: f64,
+    pub crop_pos_y: f64,
+    pub is_flipped: bool,
+}
+
+pub struct ImageTileData {
+    pub tile_index: u32,
+    pub data: DynamicImage,
+}
+
+pub struct FrameExtractor {
+    pub instance_id: u32,
+    video: VideoMetadata,
+
+    max_ffmpeg_threads: u32,
+    resize_width: u32,
+}
+
+impl FrameExtractor {
+    pub fn new(instance_id: u32, video: VideoMetadata) -> Self {
+        let resize_width = cmp::min(DEFAULT_RESIZE_WIDTH, video.width);
+        let max_ffmpeg_threads = DEFAULT_MAX_FFMPEG_THREADS;
+
+        Self {
+            instance_id,
+            video,
+            max_ffmpeg_threads: max_ffmpeg_threads,
+            resize_width: resize_width,
+        }
+    }
+
+    pub fn set_max_threads(&mut self, num: u32) -> &mut Self {
+        self.max_ffmpeg_threads = cmp::max(1, num);
+        return self;
+    }
+
+    pub fn set_resize_width(&mut self, width: u32) -> &mut Self {
+        let width = cmp::max(width, SMALLEST_RESIZED_WIDTH);
+
+        self.resize_width = cmp::min(width, self.video.width);
+        return self;
+    }
+
+    pub fn run(&mut self, matched_frames: &[VideoFrameMatch], tx: mpsc::Sender<ImageTileData>, ) -> Result<()> {
+        let frame_width = self.resize_width;
+        let frame_height = (frame_width as f64 / self.video.aspect_ratio.ratio()).round() as u32;
+
+        // generate an ffmpeg flag that tells ffmpeg to extract specific frames
+        let mut frame_indices = matched_frames.iter()
+            .map(|frame| frame.frame_index)
+            .collect::<Vec<u32>>();
+
+        frame_indices.sort_unstable();
+        frame_indices.dedup();
+
+        // select=eq(n\,123)+eq(n\,4635)+eq(n\,8291)
+        let select = frame_indices.iter()
+            .map(|index| format!("eq(n\\,{index})"))
+            .collect::<Vec<_>>()
+            .join("+");
+
+        let select_flag = format!("select={select}");
+
+        // scale=1920:-1:flags=area
+        let scale_flag = &format!("scale={}:-2:flags=area", self.resize_width);
+
+        // ensure select comes before scale, so ffmpeg only scales the selected frames
+        // -vf "select=eq(n\,123)+eq(n\,4635)+eq(n\,8291),scale=1920:-2:flags=area"
+        let video_filter = format!("{select_flag},{scale_flag}");
+
+        let mut child = Command::new("ffmpeg")
+            .args([
+                //"-hwaccel", "auto", // TODO: need to detect GPU decode is available, fall back to CPU
+                "-threads", &format!("{}", self.max_ffmpeg_threads),
+                "-i"]).arg(&self.video.full_path)
+            .args([
+                "-vf", &video_filter,
+                "-fps_mode", "passthrough",
+
+                // No audio/subtitles/data output
+                "-an",
+                "-sn",
+                "-dn",
+
+                // Raw RGB pixels
+                "-f", "rawvideo",
+                "-pix_fmt", "rgb24",
+
+                // Output to stdout
+                "pipe:1",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+
+        let frame_size = frame_width * frame_height * BYTES_PER_PIXEL;
+
+        let mut stdout = child.stdout.take().unwrap();
+        let mut buffer = vec![0u8; frame_size as usize];
+
+        let mut output_index: usize = 0;
+
+        loop {
+            match stdout.read_exact(&mut buffer) {
+                Ok(()) => {
+                    let frame_index = frame_indices[output_index];
+
+                    let image = RgbImage::from_raw(
+                        frame_width, frame_height,  buffer.to_vec()).unwrap();
+
+                    let matches = matched_frames.iter()
+                        .filter(|frame_match| frame_match.frame_index == frame_index);
+
+                    for matched_frame in matches {
+                        let mut image = image.clone();
+
+                        if matched_frame.crop_resize < 100.0 {
+                            let pos_x = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_pos_x) as u32;
+                            let pos_y = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_pos_y) as u32;
+                        
+                            let cropped_width = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_resize) as u32;
+                            let cropped_height = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_resize) as u32;
+                        
+                            image = imageops::crop(&mut image, pos_x, pos_y, cropped_width, cropped_height).to_image();
+                        }
+
+                        if matched_frame.is_flipped {
+                            imageops::flip_horizontal_in_place(&mut image);
+                        }
+
+                        let tile_data = ImageTileData {
+                            tile_index: matched_frame.tile_index,
+                            data: DynamicImage::ImageRgb8(image),
+                        };
+
+                        tx.send(tile_data).unwrap();
+                    }
+
+                    output_index += 1;
+                },
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    break;
+                },
+                Err(error) => {
+                    return Err(anyhow::format_err!("Failed reading ffmpeg output: {error}"));
+                }
+            }
+        }
+
+        let _ = child.wait().unwrap();
+
+        Ok(())
+    }
+}
