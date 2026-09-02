@@ -17,8 +17,8 @@ pub struct App {
     pub working_dir: PathBuf,
     pub database_dir: PathBuf,
 
-    pub tiles_x: u32,
-    pub tiles_y: u32,
+    pub color_tiles_x: u32,
+    pub color_tiles_y: u32,
 
     pub mosaic_tiles_x: u32,
     pub mosaic_tiles_y: u32,
@@ -186,6 +186,7 @@ pub enum ImageType {
 }
 
 const DATABASE_DIR: &str = "pmg_data";
+const DEFAULT_COLOR_TILES: u32 = 4;
 
 impl App {
     pub fn new(wk_dir: &Path, sys_info: SystemInfo) -> App {
@@ -196,8 +197,8 @@ impl App {
             system_info: sys_info,
             working_dir: PathBuf::from(wk_dir),
             database_dir: database_dir,
-            tiles_x: 4,
-            tiles_y: 4,
+            color_tiles_x: DEFAULT_COLOR_TILES,
+            color_tiles_y: DEFAULT_COLOR_TILES,
             mosaic_tiles_x: 40,
             mosaic_tiles_y: 40,
             current_video_index: 0,
@@ -228,8 +229,8 @@ impl App {
     }
 
     pub fn set_color_tiles(&mut self, num_x: u32, num_y: u32) {
-        self.tiles_x = num_x;
-        self.tiles_y = num_y;
+        self.color_tiles_x = num_x;
+        self.color_tiles_y = num_y;
     }
 
     pub fn set_mosaic_tiles(&mut self, num_x: u32, num_y: u32) {

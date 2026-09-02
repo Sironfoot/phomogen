@@ -41,8 +41,10 @@ use crate::app::frame_data::{Color, FrameCrop, FrameData, VideoColorIndexDatabas
 fn main() -> Result<()> {
     // TODO: replace with CLI args + better error handling
     const TEST_DIR: &str = "./videos";
+    const TEST_COLOR_TILES: u32 = 6;
 
     let wk_dir = TEST_DIR;
+    let num_color_tiles = TEST_COLOR_TILES;
     
     let working_dir = match std::fs::canonicalize(wk_dir) {
         Ok(path) => path,
@@ -63,8 +65,8 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(&working_dir, sys_info);
-    app.set_mosaic_tiles(50, 50);
-    app.set_color_tiles(5, 5);
+    app.set_mosaic_tiles(60, 60);
+    app.set_color_tiles(num_color_tiles, num_color_tiles);
 
     run_app(&mut terminal, &mut app)?;
 
@@ -142,7 +144,7 @@ where
                             video.indexing_report = Some(report);
 
                             if is_finished {
-                                let database_file_name = format!("{}.pmgd", video.metadata.file_name);
+                                let database_file_name = format!("{}-{}x{}.pmgd", video.metadata.file_name, app.color_tiles_x, app.color_tiles_y);
                                 video.database_path = Some(app.database_dir.join(&database_file_name));
 
                                 color_extractor_receiver = None;
@@ -477,8 +479,8 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
 
     let max_allowed_cores = app.system_info.max_allowed_cores();
 
-    let tiles_x = app.tiles_x;
-    let tiles_y = app.tiles_y;
+    let color_tiles_x = app.color_tiles_x;
+    let color_tiles_y = app.color_tiles_y;
 
     let video = video.clone();
 
@@ -540,8 +542,8 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
                     video,
                     starting_frame_index,
                     ending_frame_index,
-                    tiles_x,
-                    tiles_y,
+                    color_tiles_x,
+                    color_tiles_y,
                     temp_file_path.as_path()).unwrap();
 
                 extractor.set_algorithm(ColorExtractionAlgorithm::PixelArrayTraversal);
@@ -589,8 +591,8 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
         }
 
         // join all the temp files together into something like:
-        // wk_dir/pmg_data/my_holiday.mp4.pmgd
-        let data_file_name = format!("{}.pmgd", video.file_name);
+        // wk_dir/pmg_data/my_holiday.mp4-5x5.pmgd
+        let data_file_name = format!("{}-{}x{}.pmgd", video.file_name, color_tiles_x, color_tiles_y);
         let full_data_file_path = database_dir.join(data_file_name);
         let mut data_file = File::create(full_data_file_path).unwrap();
 
@@ -611,6 +613,9 @@ fn read_video_files(app: &App) -> Receiver<Vec<VideoFile>> {
     let (tx, rc) = mpsc::channel::<Vec<VideoFile>>();
     let working_dir = app.working_dir.clone();
     let database_dir = app.database_dir.clone();
+
+    let color_tiles_x = app.color_tiles_x;
+    let color_tiles_y = app.color_tiles_y;
 
     thread::spawn(move || {
         const VIDEO_EXTENSIONS: &[&str] = &[
@@ -647,7 +652,7 @@ fn read_video_files(app: &App) -> Receiver<Vec<VideoFile>> {
             let full_path = working_dir.join(&video_file);
             let meta_data = VideoMetadata::extract_from(&full_path);
 
-            let data_file = format!("{video_file}.pmgd");
+            let data_file = format!("{video_file}-{}x{}.pmgd", color_tiles_x, color_tiles_y);
             let full_data_path = database_dir.join(&data_file);
 
             let data_exists = fs::exists(&full_data_path).unwrap_or(false);
@@ -745,9 +750,9 @@ struct LoadDatabaseProgressReport {
 fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressReport> {
     let (tx, rc) = mpsc::channel::<LoadDatabaseProgressReport>();
 
-    let tiles_x = app.tiles_x;
-    let tiles_y = app.tiles_y;
-    let total_colors = (tiles_x * tiles_y) as usize;
+    let color_tiles_x = app.color_tiles_x;
+    let color_tiles_y = app.color_tiles_y;
+    let total_colors = (color_tiles_x * color_tiles_y) as usize;
 
     let video_file_name = video.metadata.file_name.clone();
     let total_frames = video.metadata.total_frames as u32;
@@ -855,7 +860,7 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
             }
 
             let mut crop = FrameCrop::init(
-                tiles_x,
+                color_tiles_x,
                 resize_percentage,
                 pos_x_percentage,
                 pos_y_percentage);
@@ -888,7 +893,7 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
         }
 
         let color_database = VideoColorIndexDatabase::new(
-            tiles_x, tiles_y, frames.into_values().collect());
+            color_tiles_x, color_tiles_y, frames.into_values().collect());
 
         tx.send(LoadDatabaseProgressReport {
             video_file_name: video_file_name,
@@ -909,8 +914,8 @@ fn calculate_image_colors(app: &App) -> Receiver<Vec<ImageTile>> {
         .expect("No image is chosen");
     let image_path = image.full_path.clone();
 
-    let tiles_x = app.tiles_x;
-    let tiles_y = app.tiles_y;
+    let color_tiles_x = app.color_tiles_x;
+    let color_tiles_y = app.color_tiles_y;
 
     let mosaic_tiles_x = app.mosaic_tiles_x;
     let mosaic_tiles_y = app.mosaic_tiles_y;
@@ -948,8 +953,8 @@ fn calculate_image_colors(app: &App) -> Receiver<Vec<ImageTile>> {
         let image_data = imageops::resize(
             &image_data, resize_width, resize_height, FilterType::CatmullRom);
 
-        let color_tile_width = f64::round(mosaic_tile_width as f64 / tiles_x as f64) as u32;
-        let color_tile_height = f64::round(mosaic_tile_height as f64 / tiles_y as f64) as u32;
+        let color_tile_width = f64::round(mosaic_tile_width as f64 / color_tiles_x as f64) as u32;
+        let color_tile_height = f64::round(mosaic_tile_height as f64 / color_tiles_y as f64) as u32;
 
         let total_sub_tile_pixels = color_tile_width * color_tile_height;
 
@@ -964,8 +969,8 @@ fn calculate_image_colors(app: &App) -> Receiver<Vec<ImageTile>> {
                     colors: vec![]
                 };
                 
-                for sub_tile_y in 0..tiles_y {
-                    for sub_tile_x in 0..tiles_x {
+                for sub_tile_y in 0..color_tiles_y {
+                    for sub_tile_x in 0..color_tiles_x {
                         let start_x = sub_tile_x * color_tile_width;
                         let end_x = cmp::min(start_x + color_tile_width, mosaic_tile_width);
 
@@ -1110,7 +1115,7 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
             });
         }
 
-        let num_workers = max_allowed_cores * 2;
+        let num_workers = max_allowed_cores / 2;
         let num_ffmpeg_threads: u32 = 4;
 
         for (video_filname, video_frame_matches) in video_frame_matches {

@@ -75,8 +75,8 @@ pub struct ColorExtractor {
     start_frame_index: u64,
     end_frame_index: u64,
 
-    tiles_x: u32,
-    tiles_y: u32,
+    color_tiles_x: u32,
+    color_tiles_y: u32,
 
     algorithm: ColorExtractionAlgorithm,
 }
@@ -87,8 +87,8 @@ impl ColorExtractor {
         video: VideoMetadata,
         start_frame_index: u64,
         end_frame_index: u64,
-        tiles_x: u32,
-        tiles_y: u32,
+        color_tiles_x: u32,
+        color_tiles_y: u32,
         data_file_path: &Path) -> Result<ColorExtractor> {
 
         if video.is_variable_frame_rate {
@@ -109,8 +109,8 @@ impl ColorExtractor {
             resize_width,
             start_frame_index,
             end_frame_index,
-            tiles_x,
-            tiles_y,
+            color_tiles_x,
+            color_tiles_y,
             algorithm: ColorExtractionAlgorithm::SummedAreaTable,
         })
     }
@@ -136,7 +136,7 @@ impl ColorExtractor {
         let frame_width = self.resize_width;
         let frame_height = (frame_width as f64 / self.video.aspect_ratio.ratio()).round() as u32;
         
-        let frame_crops = CropSetting::all_crops(frame_width, frame_height, self.tiles_x, self.tiles_y)?;
+        let frame_crops = CropSetting::all_crops(frame_width, frame_height, self.color_tiles_x, self.color_tiles_y)?;
         
         let seconds_to_target_frame = self.start_frame_index as f64 / self.video.frame_rate;
 

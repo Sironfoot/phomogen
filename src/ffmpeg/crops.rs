@@ -23,20 +23,20 @@ pub struct CropTile {
 }
 
 impl CropSetting {
-    fn new(resize: f64, pos_x: f64, pos_y: f64, frame_width: u32, frame_height: u32, tiles_x: u32, tiles_y: u32) -> Self {
+    fn new(resize: f64, pos_x: f64, pos_y: f64, frame_width: u32, frame_height: u32, color_tiles_x: u32, color_tiles_y: u32) -> Self {
         let cropped_width = f64::round((frame_width as f64 / 100.0) * resize) as u32;
         let cropped_height = f64::round(cropped_width as f64 / RATIO_16_9) as u32;
 
         let crop_start_x = f64::round((frame_width as f64 / 100.0) * pos_x) as u32;
         let crop_start_y = f64::round((frame_height as f64 / 100.0) * pos_y) as u32;
 
-        let cropped_grid_width = f64::round(cropped_width as f64 / tiles_x as f64) as u32;
-        let cropped_grid_height = f64::round(cropped_height as f64 / tiles_y as f64) as u32;
+        let cropped_grid_width = f64::round(cropped_width as f64 / color_tiles_x as f64) as u32;
+        let cropped_grid_height = f64::round(cropped_height as f64 / color_tiles_y as f64) as u32;
 
-        let mut tiles: Vec<CropTile> = Vec::with_capacity((tiles_x * tiles_y) as usize);
+        let mut tiles: Vec<CropTile> = Vec::with_capacity((color_tiles_x * color_tiles_y) as usize);
 
-        for grid_y in 0..tiles_y {
-            for grid_x in 0..tiles_x {
+        for grid_y in 0..color_tiles_y {
+            for grid_x in 0..color_tiles_x {
                 let start_x = crop_start_x + (cropped_grid_width * grid_x);
                 let end_x = cmp::min(start_x + cropped_grid_width, frame_width);
 
@@ -60,12 +60,12 @@ impl CropSetting {
         }
     }
 
-    pub fn all_crops(frame_width: u32, frame_height: u32, tiles_x: u32, tiles_y: u32) -> Result<Vec<Self>> {
+    pub fn all_crops(frame_width: u32, frame_height: u32, color_tiles_x: u32, color_tiles_y: u32) -> Result<Vec<Self>> {
         let aspect_ratio = AspectRatio::new(frame_width, frame_height);
 
         match aspect_ratio {
             AspectRatio::Landscape16x9 => {
-                Ok(CropSetting::get_16x9(frame_width, frame_height, tiles_x, tiles_y))
+                Ok(CropSetting::get_16x9(frame_width, frame_height, color_tiles_x, color_tiles_y))
             },
             _ => {
                 Err(anyhow::format_err!("`{aspect_ratio}` aspect ratio videos aren't supported"))
@@ -73,38 +73,38 @@ impl CropSetting {
         }
     }
 
-    fn get_16x9(frame_width: u32, frame_height: u32, tiles_x: u32, tiles_y: u32) -> Vec<Self> {
+    fn get_16x9(frame_width: u32, frame_height: u32, color_tiles_x: u32, color_tiles_y: u32) -> Vec<Self> {
         vec![
             // full frame
-            Self::new(100.0, 0.0, 0.0, frame_width, frame_height, tiles_x, tiles_y), // full frame
+            Self::new(100.0, 0.0, 0.0, frame_width, frame_height, color_tiles_x, color_tiles_y), // full frame
 
             // 50% crops
-            Self::new(50.0, 0.0, 0.0, frame_width, frame_height, tiles_x, tiles_y),   // top left
-            Self::new(50.0, 25.0, 0.0, frame_width, frame_height, tiles_x, tiles_y),  // top
-            Self::new(50.0, 50.0, 0.0, frame_width, frame_height, tiles_x, tiles_y),  // top right
-            Self::new(50.0, 0.0, 25.0, frame_width, frame_height, tiles_x, tiles_y),  // left
-            Self::new(50.0, 25.0, 25.0, frame_width, frame_height, tiles_x, tiles_y), // center
-            Self::new(50.0, 50.0, 25.0, frame_width, frame_height, tiles_x, tiles_y), // right
-            Self::new(50.0, 0.0, 50.0, frame_width, frame_height, tiles_x, tiles_y),  // bottom left
-            Self::new(50.0, 25.0, 50.0, frame_width, frame_height, tiles_x, tiles_y), // bottom
-            Self::new(50.0, 50.0, 50.0, frame_width, frame_height, tiles_x, tiles_y), // bottom right
+            Self::new(50.0, 0.0, 0.0, frame_width, frame_height, color_tiles_x, color_tiles_y),   // top left
+            Self::new(50.0, 25.0, 0.0, frame_width, frame_height, color_tiles_x, color_tiles_y),  // top
+            Self::new(50.0, 50.0, 0.0, frame_width, frame_height, color_tiles_x, color_tiles_y),  // top right
+            Self::new(50.0, 0.0, 25.0, frame_width, frame_height, color_tiles_x, color_tiles_y),  // left
+            Self::new(50.0, 25.0, 25.0, frame_width, frame_height, color_tiles_x, color_tiles_y), // center
+            Self::new(50.0, 50.0, 25.0, frame_width, frame_height, color_tiles_x, color_tiles_y), // right
+            Self::new(50.0, 0.0, 50.0, frame_width, frame_height, color_tiles_x, color_tiles_y),  // bottom left
+            Self::new(50.0, 25.0, 50.0, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom
+            Self::new(50.0, 50.0, 50.0, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom right
 
             // 50% inner crops
-            Self::new(50.0, 12.5, 12.5, frame_width, frame_height, tiles_x, tiles_y), // inner top left
-            Self::new(50.0, 37.5, 12.5, frame_width, frame_height, tiles_x, tiles_y), // inner top right
-            Self::new(50.0, 12.5, 37.5, frame_width, frame_height, tiles_x, tiles_y), // inner bottom left
-            Self::new(50.0, 37.5, 37.5, frame_width, frame_height, tiles_x, tiles_y), // inner bottom right
+            Self::new(50.0, 12.5, 12.5, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top left
+            Self::new(50.0, 37.5, 12.5, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top right
+            Self::new(50.0, 12.5, 37.5, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom left
+            Self::new(50.0, 37.5, 37.5, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom right
 
             // 66.666% crops
-            Self::new(66.666, 0.0, 0.0, frame_width, frame_height, tiles_x, tiles_y),       // top left
-            Self::new(66.666, 16.666, 0.0, frame_width, frame_height, tiles_x, tiles_y),    // top
-            Self::new(66.666, 33.333, 0.0, frame_width, frame_height, tiles_x, tiles_y),    // top right
-            Self::new(66.666, 0.0, 16.666, frame_width, frame_height, tiles_x, tiles_y),    // left
-            Self::new(66.666, 16.666, 16.666, frame_width, frame_height, tiles_x, tiles_y), // center
-            Self::new(66.666, 33.333, 16.666, frame_width, frame_height, tiles_x, tiles_y), // right
-            Self::new(66.666, 0.0, 33.333, frame_width, frame_height, tiles_x, tiles_y),    // bottom left
-            Self::new(66.666, 16.666, 33.333, frame_width, frame_height, tiles_x, tiles_y), // bottom
-            Self::new(66.666, 33.333, 33.333, frame_width, frame_height, tiles_x, tiles_y), // bottom right
+            Self::new(66.666, 0.0, 0.0, frame_width, frame_height, color_tiles_x, color_tiles_y),       // top left
+            Self::new(66.666, 16.666, 0.0, frame_width, frame_height, color_tiles_x, color_tiles_y),    // top
+            Self::new(66.666, 33.333, 0.0, frame_width, frame_height, color_tiles_x, color_tiles_y),    // top right
+            Self::new(66.666, 0.0, 16.666, frame_width, frame_height, color_tiles_x, color_tiles_y),    // left
+            Self::new(66.666, 16.666, 16.666, frame_width, frame_height, color_tiles_x, color_tiles_y), // center
+            Self::new(66.666, 33.333, 16.666, frame_width, frame_height, color_tiles_x, color_tiles_y), // right
+            Self::new(66.666, 0.0, 33.333, frame_width, frame_height, color_tiles_x, color_tiles_y),    // bottom left
+            Self::new(66.666, 16.666, 33.333, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom
+            Self::new(66.666, 33.333, 33.333, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom right
         ]
     }
 }
