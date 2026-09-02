@@ -36,8 +36,9 @@ impl FrameColorExtractionAlgorithm for PixelArray {
             let resize = crop.resize_percentage;
             let pos_x = crop.pos_x_percentage;
             let pos_y = crop.pos_y_percentage;
+            let crop_level = crop.crop_level as u8;
 
-            write!(&mut output, "{frame_number} {resize} {pos_x} {pos_y}")?;
+            write!(&mut output, "{frame_number} {resize} {pos_x} {pos_y} {crop_level}")?;
 
             for tile in crop.tiles.iter() {
                 let mut total_red: u32 = 0;

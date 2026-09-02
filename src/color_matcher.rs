@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::{Arc, mpsc::{self, Receiver}}, thread::{se
 
 use anyhow::Result;
 
-use crate::app::{ImageFile, ImageTile, frame_data::{Color, VideoColorIndexDatabase}};
+use crate::{app::{ImageFile, ImageTile, frame_data::{Color, VideoColorIndexDatabase}}, ffmpeg::crops::CropLevel};
 
 pub struct ColorMatcher {
     pub red_bias: u64,
@@ -13,12 +13,13 @@ pub struct ColorMatcher {
     pub mosaic_tiles_y: u32,
 
     num_workers: u32,
+    allowed_crops: Vec<CropLevel>,
 
     databases: HashMap<String, Arc<VideoColorIndexDatabase>>,
 }
 
 impl ColorMatcher {
-    pub fn new(mosaic_tiles_x: u32, mosaic_tiles_y: u32) -> Self {
+    pub fn new(mosaic_tiles_x: u32, mosaic_tiles_y: u32, allowed_crops: &[CropLevel]) -> Self {
         Self {
             red_bias: 3,
             green_bias: 6,
@@ -26,6 +27,7 @@ impl ColorMatcher {
             mosaic_tiles_x,
             mosaic_tiles_y,
             num_workers: 1,
+            allowed_crops: allowed_crops.to_vec(),
             databases: HashMap::new(),
         }
     }
@@ -111,7 +113,10 @@ impl ColorMatcher {
             let mut match_found_in_database = false;
 
             for frame in database.frames() {
-                for crop in &frame.crops {
+                let allowed_crops = frame.crops.iter()
+                    .filter(|c| self.allowed_crops.contains(&c.crop_level));
+
+                for crop in allowed_crops {
                     // check non-flipped
                     let distance = self.check_distance(&crop.colors, candidate);
 

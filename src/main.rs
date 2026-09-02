@@ -32,6 +32,7 @@ use anyhow::Result;
 use crate::app::{App, AppStage, ImageFile, ImageTile, ImageType, SystemInfo, VideoFile, VideoIndexCore, VideoIndexStatus, VideoIndexingReport};
 use crate::color_matcher::{ColorMatcher, FrameMatch};
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm, ColorExtractionProgress, ColorExtractor};
+use crate::ffmpeg::crops::CropLevel;
 use crate::ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch};
 use crate::tile_blender::TileBlender;
 use crate::ui::render_ui;
@@ -41,7 +42,9 @@ use crate::app::frame_data::{Color, FrameCrop, FrameData, VideoColorIndexDatabas
 fn main() -> Result<()> {
     // TODO: replace with CLI args + better error handling
     const TEST_DIR: &str = "./videos";
-    const TEST_COLOR_TILES: u32 = 6;
+    const TEST_COLOR_TILES: u32 = 8;
+    const DISABLE_AGGRESIVE_CROPS: bool = false;
+    const DISABLE_ALL_CROPS: bool = false;
 
     let wk_dir = TEST_DIR;
     let num_color_tiles = TEST_COLOR_TILES;
@@ -67,6 +70,15 @@ fn main() -> Result<()> {
     let mut app = App::new(&working_dir, sys_info);
     app.set_mosaic_tiles(60, 60);
     app.set_color_tiles(num_color_tiles, num_color_tiles);
+
+    if DISABLE_AGGRESIVE_CROPS {
+        app.disallow_crop_level(CropLevel::Aggressive);
+    }
+
+    if DISABLE_ALL_CROPS {
+        app.disallow_crop_level(CropLevel::Aggressive);
+        app.disallow_crop_level(CropLevel::Moderate);
+    }
 
     run_app(&mut terminal, &mut app)?;
 
@@ -772,7 +784,7 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
         let max_line_length = 222;
         let mut line = String::with_capacity(max_line_length);
         
-        // e.g. 0 100 0 0 108,105,100 99,96,99 85,85,77....
+        // e.g. 0 100 0 0 1 108,105,100 99,96,99 85,85,77....
         loop {
             line.clear();
 
@@ -833,6 +845,17 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
                 continue;
             }
 
+            // get crop level
+            let Some(crop_level) = parts.next().and_then(|v| v.parse::<u8>().ok()) else {
+                dropped_frames += 1;
+                continue;
+            };
+
+            let Ok(crop_level) = CropLevel::try_from(crop_level) else {
+                dropped_frames += 1;
+                continue;
+            };
+
             let mut colors: Vec<Color> = Vec::with_capacity(total_colors);
 
             while let Some(color) = parts.next() {
@@ -863,7 +886,8 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
                 color_tiles_x,
                 resize_percentage,
                 pos_x_percentage,
-                pos_y_percentage);
+                pos_y_percentage,
+                crop_level);
 
             crop.colors = colors;
 
@@ -1015,11 +1039,11 @@ fn calculate_image_colors(app: &App) -> Receiver<Vec<ImageTile>> {
 }
 
 fn find_matches(app: &mut App) -> Receiver<FrameMatch> {
-    let chosen_image = app.images.iter_mut()
+    let chosen_image = app.images.iter()
         .find(|i| i.is_chosen && i.image_tiles.is_some());
 
     if let Some(chosen_image) = chosen_image {
-        let mut matcher = ColorMatcher::new(app.mosaic_tiles_x, app.mosaic_tiles_y);
+        let mut matcher = ColorMatcher::new(app.mosaic_tiles_x, app.mosaic_tiles_y, app.allowed_crops());
 
         matcher.set_thread_count(app.system_info.max_allowed_cores());
 

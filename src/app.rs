@@ -7,7 +7,7 @@ use std::{ops::Add, path::{Path, PathBuf}, sync::Arc, time::{Duration, Instant}}
 
 use image::DynamicImage;
 
-use crate::{app::frame_data::Color, color_matcher::FrameMatch, ffmpeg::{VideoMetadata, color_extractor::ColorExtractionAlgorithm}};
+use crate::{app::frame_data::Color, color_matcher::FrameMatch, ffmpeg::{VideoMetadata, color_extractor::ColorExtractionAlgorithm, crops::CropLevel}};
 use crate::app::frame_data::VideoColorIndexDatabase;
 
 pub struct App {
@@ -32,6 +32,8 @@ pub struct App {
 
     timer: Instant,
     stopped_ellapsed: Option<Duration>,
+
+    allowed_crops: Vec<CropLevel>,
 }
 
 pub struct VideoFile {
@@ -208,6 +210,7 @@ impl App {
             images: vec![],
             timer: Instant::now(),
             stopped_ellapsed: None,
+            allowed_crops: vec![CropLevel::Essential, CropLevel::Moderate, CropLevel::Aggressive],
         }
     }
 
@@ -226,6 +229,24 @@ impl App {
         }
 
         self.timer.elapsed()
+    }
+
+    pub fn disallow_crop_level(&mut self, crop_level: CropLevel) {
+        if crop_level != CropLevel::Essential {
+            if let Some(position) = self.allowed_crops.iter().position(|c| c == &crop_level) {
+                self.allowed_crops.remove(position);
+            }
+        }
+    }
+
+    pub fn allow_crop_level(&mut self, crop_level: CropLevel) {
+        if !self.allowed_crops.contains(&crop_level) {
+            self.allowed_crops.push(crop_level);
+        }
+    }
+
+    pub fn allowed_crops(&self) -> &[CropLevel] {
+        self.allowed_crops.iter().as_slice()
     }
 
     pub fn set_color_tiles(&mut self, num_x: u32, num_y: u32) {

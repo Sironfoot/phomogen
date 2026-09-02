@@ -101,8 +101,9 @@ impl FrameColorExtractionAlgorithm for SummedAreaTable {
             let resize = crop.resize_percentage;
             let pos_x = crop.pos_x_percentage;
             let pos_y = crop.pos_y_percentage;
+            let crop_level = crop.crop_level as u8;
 
-            write!(&mut output, "{frame_number} {resize} {pos_x} {pos_y}")?;
+            write!(&mut output, "{frame_number} {resize} {pos_x} {pos_y} {crop_level}")?;
 
             for tile in crop.tiles.iter() {
                 let [average_red, average_green, average_blue] = self
