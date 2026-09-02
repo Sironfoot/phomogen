@@ -1524,6 +1524,7 @@ dependencies = [
  "image",
  "indoc",
  "num-format",
+ "rand 0.9.5",
  "ratatui",
  "ratatui-image",
  "sysinfo",
