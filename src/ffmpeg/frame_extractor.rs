@@ -61,17 +61,30 @@ impl FrameExtractor {
         frame_indices.sort_unstable();
         frame_indices.dedup();
 
-         let frame_size = frame_width * frame_height * BYTES_PER_PIXEL;
+        let frame_size = frame_width * frame_height * BYTES_PER_PIXEL;
+        const PRE_ROLL: f64 = 2.0;
 
         for frame_index in frame_indices {
             let seconds_to_target_frame = frame_index as f64 / self.video.frame_rate;
 
+            // with some advanced codecs (H.265/HEVC) seeking individual frames could potentially fall on a
+            // B-frame, you can end up with a frame from 1-3 frames before or after it, rather than the exact
+            // frame you want. This can lead to the incorrect frame and visual annomalies in the mosaic.
+            // Explained in detail here: https://ffmpeg.org/pipermail/ffmpeg-devel/2022-February/293221.html
+            // Something to do with open-GOP/CRA random-access behaviour, I guess video codecs are increadibly
+            // complicated. The work around is to seek the video 2 seconds before the desired frame,
+            // then play forward from there until the desired frame is reached, this ensures the video
+            // is decoded correctly, then the desired frame can be extracted.
+            let coarse_seek = (seconds_to_target_frame - PRE_ROLL).max(0.0);
+            let fine_seek = seconds_to_target_frame - coarse_seek;
+
             let mut child = Command::new("ffmpeg")
                 .args([
                     "-hwaccel", "auto", // TODO: need to detect GPU decode is available, fall back to CPU
-                    "-ss", &format!("{seconds_to_target_frame}"),
+                    "-ss", &format!("{coarse_seek}"),
                     "-i"]).arg(&self.video.full_path)
                 .args([
+                    "-ss", &format!("{fine_seek}"),
                     "-frames:v", "1",
                     "-vf", &format!("scale={}:-2:flags=area", self.resize_width),
 

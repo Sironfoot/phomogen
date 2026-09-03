@@ -4,7 +4,7 @@ use image::{RgbImage, imageops};
 use image::imageops::{FilterType};
 use rand::seq::index::sample;
 
-const TOTAL_FRAMES: u32 = 36_000;
+const TOTAL_FRAMES: u32 = 40_000;
 const NUM_FRAMES_TO_EXTRACT: usize = 100;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -24,10 +24,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .into_iter()
         .map(|value| value as u32)
         .collect();
+
     frame_indices.sort_unstable();
 
-    let video_path = Path::new("./videos/Frame Test 29.97.mov");
-    let frame_rate = 29.97002997;
+    let video_path = Path::new("./videos/North Western Road Trip.mp4");
+    let frame_rate = 29.97002997002997;
 
     let frame_width: u32 = 1920;
     let frame_height: u32 = 1080;
@@ -47,24 +48,31 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn start_top_instance(frame_indices: &[u32], video_file: &Path, frame_width: u32, frame_height: u32, frame_rate: f64) {
     let frame_size: u32 = frame_width * frame_height * 3;
 
+    const PRE_ROLL: f64 = 2.0;
+
     for frame_index in frame_indices {
-        let seconds_to_target_frame = *frame_index as f64 / frame_rate;
+        let seconds_to_target_frame = (*frame_index as f64) / frame_rate;
+        
+        let coarse_seek = (seconds_to_target_frame - PRE_ROLL).max(0.0);
+        let fine_seek = seconds_to_target_frame - coarse_seek;
 
         let mut child = Command::new("ffmpeg")
             .args([
-                //"-hwaccel", "auto", // TODO: need to detect GPU decode is available, fall back to CPU
-                "-ss", &format!("{seconds_to_target_frame}"),
+                "-hwaccel", "auto", // TODO: need to detect GPU decode is available, fall back to CPU
+                "-ss", &format!("{coarse_seek}"),
                 "-i"]).arg(&video_file)
             .args([
+                "-ss", &format!("{fine_seek}"),
                 "-frames:v", "1",
                 "-vf", &format!("scale={frame_width}:-2:flags=area"),
+                //"-fps_mode", "passthrough",
 
                 // No audio/subtitles/data output
                 "-an",
                 "-sn",
                 "-dn",
 
-                // Raw RGB pixels
+                // Raw RGB pixel
                 "-f", "rawvideo",
                 "-pix_fmt", "rgb24",
 

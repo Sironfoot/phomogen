@@ -68,7 +68,7 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(&working_dir, sys_info);
-    app.set_mosaic_tiles(20, 20);
+    app.set_mosaic_tiles(50, 50);
     app.set_color_tiles(num_color_tiles, num_color_tiles);
 
     if DISABLE_AGGRESIVE_CROPS {
@@ -1143,7 +1143,7 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
             });
         }
 
-        let num_workers = max_allowed_cores / 2;
+        let num_workers = max_allowed_cores / 1;
 
         for (video_filname, video_frame_matches) in video_frame_matches {
             if let Some(video) = videos.iter().find(|v| v.file_name == video_filname) {
@@ -1177,9 +1177,7 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
                     let tx = tx.clone();
                     
                     workers.push(thread::spawn(move || {
-                        let mut frame_extractor = FrameExtractor::new(
-                            worker_index,
-                            video_metadata);
+                        let mut frame_extractor = FrameExtractor::new(worker_index, video_metadata);
                         frame_extractor.run(&workers_matches, tx).unwrap();
                     }));
                 }
