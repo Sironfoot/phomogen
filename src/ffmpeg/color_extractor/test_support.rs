@@ -72,7 +72,7 @@ where
 
     // [Frame Index] [Crop Size] [PosX] [PosY] [R,G,B] [R,G,B] [R,G,B] [R,G,B]
     for (i, crop) in frame_crops.iter().enumerate() {
-        let mut expected_line = format!("{frame_index} {} {} {}", crop.resize_percentage, crop.pos_x_percentage, crop.pos_y_percentage);
+        let mut expected_line = format!("{frame_index} {} {} {} {}", crop.resize_percentage, crop.pos_x_percentage, crop.pos_y_percentage, crop.crop_level as u8);
         let line = &lines[i];
 
         // check full frame which should exactly match RGB array above

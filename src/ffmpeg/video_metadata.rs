@@ -72,8 +72,9 @@ impl VideoMetadata {
             .with_context(|| format!("video meta-data is missing `avg_frame_rate"))?;
 
         let is_variable_frame_rate = frame_rate_raw != average_frame_rate_raw;
-        let frame_rate = Self::get_frame_rate(frame_rate_raw)?;
 
+        let frame_rate = Self::get_frame_rate(frame_rate_raw)?;
+        
         let total_frames: u64 = Self::get_property("nb_frames", &meta_items)?;
         let total_bytes: u64 = Self::get_property("size", &meta_items)?;
 
@@ -130,8 +131,10 @@ impl VideoMetadata {
         let fps_parts: Vec<&str> = input.split("/").collect();
         let fps_first: u32 = fps_parts[0].parse()?;
         let fps_last: u32 = fps_parts[1].parse()?;
-        let fps: f64 = fps_first as f64 / fps_last as f64;
-        let frame_rate = (fps * 100.0).round() / 100.0;
+
+        let frame_rate: f64 = fps_first as f64 / fps_last as f64;
+        // note don't round, e.g 29.97002997002997 > 29.97 as the extra
+        // precision is needed for accurate individual frame selection
 
         Ok(frame_rate)
     }
@@ -201,7 +204,7 @@ mod tests {
         assert_eq!(metadata.file_name, FILE_NAME);
         assert_eq!(metadata.width, 3840);
         assert_eq!(metadata.height, 2880);
-        assert_eq!(metadata.frame_rate, 29.97);
+        assert_eq!(metadata.frame_rate, 29.97002997002997);
         assert_eq!(metadata.is_variable_frame_rate, true);
         assert_eq!(metadata.bit_rate, 23101830);
         assert_eq!(metadata.total_frames, 7290);

@@ -4,7 +4,7 @@ use image::{RgbImage, imageops};
 use image::imageops::{FilterType};
 use rand::seq::index::sample;
 
-const TOTAL_FRAMES: u32 = 144_184;
+const TOTAL_FRAMES: u32 = 36_000;
 const NUM_FRAMES_TO_EXTRACT: usize = 100;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -26,8 +26,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect();
     frame_indices.sort_unstable();
 
-    let video_path = Path::new("./videos/SRR Charity Show.mov");
-    let frame_rate = 30.0;
+    let video_path = Path::new("./videos/Frame Test 29.97.mov");
+    let frame_rate = 29.97002997;
 
     let frame_width: u32 = 1920;
     let frame_height: u32 = 1080;

@@ -68,7 +68,7 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(&working_dir, sys_info);
-    app.set_mosaic_tiles(60, 60);
+    app.set_mosaic_tiles(20, 20);
     app.set_color_tiles(num_color_tiles, num_color_tiles);
 
     if DISABLE_AGGRESIVE_CROPS {
@@ -916,6 +916,10 @@ fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressR
             }
         }
 
+        if dropped_frames > 0 {
+            panic!("DROPPED FRAMES DETECTED!!");
+        }
+
         let color_database = VideoColorIndexDatabase::new(
             color_tiles_x, color_tiles_y, frames.into_values().collect());
 
@@ -1140,43 +1144,43 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
         }
 
         let num_workers = max_allowed_cores / 2;
-        let num_ffmpeg_threads: u32 = 4;
 
         for (video_filname, video_frame_matches) in video_frame_matches {
             if let Some(video) = videos.iter().find(|v| v.file_name == video_filname) {
+                let total_matches = video_frame_matches.len() as u32;
+                // ensure total threads aren't more than total matches
+                let num_workers = num_workers.min(total_matches);
             
                 let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(num_workers as usize);
                 let (tx, rc) = mpsc::channel::<ImageTileData>();
 
-                // 10 frames / 3 threads: 10 / 3 floored = 3
-                let frames_per_worker = f64::floor(video.total_frames as f64 / num_workers as f64) as u32;
+                // 10 matches / 3 threads: 10 / 3 floored = 3
+                let matches_per_worker = f64::floor(total_matches as f64 / num_workers as f64) as u32;
                 // remainder on division 10 / 3 = 1
-                let remaining_frames = video.total_frames as u32 % num_workers as u32;
+                let remainder_matches = total_matches as u32 % num_workers as u32;
 
                 for worker_index in 0..num_workers {
                     let is_last = worker_index == (num_workers - 1);
 
-                    let starting_frame_index = worker_index as u32 * frames_per_worker;
+                    let starting_match_index = worker_index as u32 * matches_per_worker;
 
-                    //  10 frames / 3 threads, thread 1 = 1,2,3, thread 2 = 4,5,6, thread 3 = 6,7,8,10
-                    let ending_frame_index = match is_last {
-                        true => (starting_frame_index + frames_per_worker) + remaining_frames,
-                        false => starting_frame_index + frames_per_worker
+                    //  10 matches / 3 threads, thread 1 = 1,2,3, thread 2 = 4,5,6, thread 3 = 6,7,8,10
+                    let ending_match_index = match is_last {
+                        true => (starting_match_index + matches_per_worker) + remainder_matches,
+                        false => starting_match_index + matches_per_worker
                     };
+
+                    let workers_matches = video_frame_matches[
+                        starting_match_index as usize..ending_match_index as usize].to_vec().clone();
 
                     let video_metadata = video.clone();
                     let tx = tx.clone();
-                    let frame_matches = video_frame_matches.clone();
                     
                     workers.push(thread::spawn(move || {
                         let mut frame_extractor = FrameExtractor::new(
                             worker_index,
-                            video_metadata,
-                            starting_frame_index,
-                            ending_frame_index);
-
-                        frame_extractor.set_max_threads(num_ffmpeg_threads);
-                        frame_extractor.run(&frame_matches, tx).unwrap();
+                            video_metadata);
+                        frame_extractor.run(&workers_matches, tx).unwrap();
                     }));
                 }
 
