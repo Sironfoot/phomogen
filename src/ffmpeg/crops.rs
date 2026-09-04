@@ -116,8 +116,14 @@ impl CropSetting {
 
             // 50% inner crops
             Self::new(50.0, 12.5, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top left
+            Self::new(50.0, 25.0, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top
             Self::new(50.0, 37.5, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top right
+
+            Self::new(50.0, 12.5, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner left
+            Self::new(50.0, 37.5, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner left
+
             Self::new(50.0, 12.5, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom left
+            Self::new(50.0, 25.0, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom
             Self::new(50.0, 37.5, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom right
 
             // 66.666% crops
