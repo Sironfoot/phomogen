@@ -137,16 +137,21 @@ impl ColorExtractor {
         let frame_height = (frame_width as f64 / self.video.aspect_ratio.ratio()).round() as u32;
         
         let frame_crops = CropSetting::all_crops(frame_width, frame_height, self.color_tiles_x, self.color_tiles_y)?;
-        
+
         let seconds_to_target_frame = self.start_frame_index as f64 / self.video.frame_rate;
+
+        const PRE_ROLL: f64 = 1.1;
+        let coarse_seek = (seconds_to_target_frame - PRE_ROLL).max(0.0);
+        let fine_seek = seconds_to_target_frame - coarse_seek;
 
         let mut child = Command::new("ffmpeg")
             .args([
                 "-hwaccel", "auto", // TODO: need to detect GPU decode is available, fall back to CPU
                 "-threads", &format!("{}", self.max_ffmpeg_threads),
-                "-ss", &format!("{seconds_to_target_frame}"),
+                "-ss", &format!("{coarse_seek}"),
                 "-i", ]).arg(&self.video.full_path)
             .args([
+                "-ss", &format!("{fine_seek}"),
                 "-vf", &format!("scale={}:-2:flags=area", self.resize_width),
 
                 // No audio/subtitles/data output

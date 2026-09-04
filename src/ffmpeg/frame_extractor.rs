@@ -62,7 +62,7 @@ impl FrameExtractor {
         frame_indices.dedup();
 
         let frame_size = frame_width * frame_height * BYTES_PER_PIXEL;
-        const PRE_ROLL: f64 = 2.0;
+        const PRE_ROLL: f64 = 1.1;
 
         for frame_index in frame_indices {
             let seconds_to_target_frame = frame_index as f64 / self.video.frame_rate;
@@ -72,7 +72,7 @@ impl FrameExtractor {
             // frame you want. This can lead to the incorrect frame and visual annomalies in the mosaic.
             // Explained in detail here: https://ffmpeg.org/pipermail/ffmpeg-devel/2022-February/293221.html
             // Something to do with open-GOP/CRA random-access behaviour, I guess video codecs are increadibly
-            // complicated. The work around is to seek the video 2 seconds before the desired frame,
+            // complicated. The work around is to seek the video 1.1 seconds before the desired frame (PRE_ROLL)
             // then play forward from there until the desired frame is reached, this ensures the video
             // is decoded correctly, then the desired frame can be extracted.
             let coarse_seek = (seconds_to_target_frame - PRE_ROLL).max(0.0);
