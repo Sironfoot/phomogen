@@ -4,7 +4,7 @@ use image::{RgbImage, imageops};
 use image::imageops::{FilterType};
 use rand::seq::index::sample;
 
-const TOTAL_FRAMES: u32 = 40_000;
+const TOTAL_FRAMES: u32 = 720;
 const NUM_FRAMES_TO_EXTRACT: usize = 100;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -27,8 +27,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     frame_indices.sort_unstable();
 
-    let video_path = Path::new("./videos/North Western Road Trip.mp4");
-    let frame_rate = 29.97002997002997;
+    let video_path = Path::new("./videos/iphone-vfr-test/IMG_0755.MOV");
+    let frame_rate = 30.0;
 
     let frame_width: u32 = 1920;
     let frame_height: u32 = 1080;
@@ -62,7 +62,10 @@ fn start_top_instance(frame_indices: &[u32], video_file: &Path, frame_width: u32
                 "-ss", &format!("{coarse_seek}"),
                 "-i"]).arg(&video_file)
             .args([
+                "-fps_mode", "cfr",
+                "-r", "30",
                 "-ss", &format!("{fine_seek}"),
+                
                 "-frames:v", "1",
                 "-vf", &format!("scale={frame_width}:-2:flags=area"),
                 //"-fps_mode", "passthrough",
@@ -122,6 +125,8 @@ fn single_instance(frame_indices: &[u32], video_file: &Path, frame_width: u32, f
             "-ss", &format!("{seconds_to_first_frame}"),
             "-i"]).arg(&video_file)
         .args([
+            "-fps_mode", "cfr",
+            "-r", "30",
             "-vf", &format!("scale={frame_width}:-2:flags=area"),
 
             // No audio/subtitles/data output
