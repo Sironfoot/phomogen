@@ -680,6 +680,8 @@ fn read_video_files(app: &App) -> Receiver<Vec<VideoFile>> {
             }
         }
 
+        videos.sort_by_cached_key(|i| i.metadata.file_name.to_lowercase());
+
         tx.send(videos).unwrap();
     });
 
@@ -747,6 +749,8 @@ fn read_image_files(app: &App) -> Receiver<Vec<ImageFile>> {
             ));
             
         }
+
+        images.sort_by_cached_key(|i| i.file_name.to_lowercase());
 
         tx.send(images).unwrap();
     });
