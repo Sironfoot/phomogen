@@ -35,7 +35,7 @@ impl VideoMetadata {
             .args([
                 "-v", "error",
                 "-select_streams", "v:0",
-                "-show_entries", "stream=width,height,r_frame_rate,avg_frame_rate,nb_frames,bit_rate,codec_name:format=size",
+                "-show_entries", "stream=width,height,r_frame_rate,avg_frame_rate,nb_frames,bit_rate,codec_name:format=size,duration",
                 "-of", "default=noprint_wrappers=1",
             ])
             .arg(video_path)
@@ -74,8 +74,13 @@ impl VideoMetadata {
         let is_variable_frame_rate = frame_rate_raw != average_frame_rate_raw;
 
         let frame_rate = Self::get_frame_rate(frame_rate_raw)?;
+        let duration_secs: f64 = Self::get_property("duration", &meta_items)?;
         
-        let total_frames: u64 = Self::get_property("nb_frames", &meta_items)?;
+        let total_frames = match Self::get_property::<u64>("nb_frames", &meta_items).ok() {
+            Some(total_frames) => total_frames,
+            None =>  (duration_secs * frame_rate).round() as u64,
+        };
+
         let total_bytes: u64 = Self::get_property("size", &meta_items)?;
 
         let bit_rate_result = Self::get_property("bit_rate", &meta_items);
@@ -83,8 +88,12 @@ impl VideoMetadata {
             Ok(bit_rate) => bit_rate,
             Err(_) => {
                 // can sometimes be N/A, so estimate based on filesize
-                let duration_secs = f64::round(total_frames as f64 / frame_rate) as u64;
-                let bit_rate = f64::round((total_bytes as f64 * 8.0) / duration_secs as f64) as u64;
+                // subtract audio data, only needs to be approx
+                let average_audio_bit_rate: f64 = 256000.0; // 256 kbps
+                let audio_bytes = (average_audio_bit_rate * duration_secs).round() as u64;
+                let video_bytes = total_bytes - audio_bytes;
+
+                let bit_rate = f64::round((video_bytes as f64 * 8.0) / duration_secs as f64) as u64;
                 bit_rate
             }
         };
@@ -94,8 +103,7 @@ impl VideoMetadata {
 
         let aspect_ratio = AspectRatio::new(width, height);
         let pixels_per_frame = width * height;
-        let duration_secs = f64::round(total_frames as f64 / frame_rate) as u64;
-        let duration = Duration::from_secs(duration_secs);
+        let duration = Duration::from_secs_f64(duration_secs);
         
         Ok(Self {
             file_name: String::from(file_name),
@@ -157,9 +165,10 @@ mod tests {
             height=1080
             r_frame_rate=30/1
             avg_frame_rate=30/1
-            bit_rate=20006151
-            nb_frames=245911
-            size=20633398382
+            bit_rate=62043742
+            nb_frames=55764
+            duration=1860.658800
+            size=14498523902
         "};
 
         let path = PathBuf::from(DIR).join(FILE_NAME);
@@ -172,14 +181,13 @@ mod tests {
         assert_eq!(metadata.height, 1080);
         assert_eq!(metadata.frame_rate, 30.0);
         assert_eq!(metadata.is_variable_frame_rate, false);
-        assert_eq!(metadata.bit_rate, 20006151);
-        assert_eq!(metadata.total_frames, 245911);
-        assert_eq!(metadata.total_bytes, 20633398382);
+        assert_eq!(metadata.bit_rate, 62043742);
+        assert_eq!(metadata.total_frames, 55764);
+        assert_eq!(metadata.total_bytes, 14498523902);
         assert_eq!(metadata.aspect_ratio, AspectRatio::Landscape16x9);
         assert_eq!(metadata.codec, VideoCodec::H264);
 
-        let duration_secs = f64::round(metadata.total_frames as f64 / metadata.frame_rate) as u64;
-        let duration = Duration::from_secs(duration_secs);
+        let duration = Duration::from_secs_f64(1860.658800);
         assert_eq!(metadata.duration, duration);
     }
 
@@ -193,6 +201,7 @@ mod tests {
             avg_frame_rate=54675/1823
             bit_rate=23101830
             nb_frames=7290
+            duration=243.066667
             size=709694454
         "};
 
@@ -212,8 +221,38 @@ mod tests {
         assert_eq!(metadata.aspect_ratio, AspectRatio::Landscape4x3);
         assert_eq!(metadata.codec, VideoCodec::HEVC);
 
-        let duration_secs = f64::round(metadata.total_frames as f64 / metadata.frame_rate) as u64;
-        let duration = Duration::from_secs(duration_secs);
+        let duration = Duration::from_secs_f64(243.066667);
         assert_eq!(metadata.duration, duration);
+    }
+
+    #[test]
+    fn frame_count_missing_av1() {
+        let ffprobe_output = indoc! {"
+            codec_name=av1
+            width=3840
+            height=2160
+            r_frame_rate=60/1
+            avg_frame_rate=60/1
+            bit_rate=N/A
+            nb_frames=N/A
+            duration=931.268000
+            size=3064885615
+        "};
+
+        let path = PathBuf::from(DIR).join(FILE_NAME);
+
+        let metadata = VideoMetadata::from_stdout(&path, ffprobe_output)
+            .expect("should not throw error");
+
+        assert_eq!(metadata.file_name, FILE_NAME);
+        assert_eq!(metadata.width, 3840);
+        assert_eq!(metadata.height, 2160);
+        assert_eq!(metadata.frame_rate, 60.0);
+        assert_eq!(metadata.is_variable_frame_rate, false);
+        assert_eq!(metadata.bit_rate, 24280710);
+        assert_eq!(metadata.total_frames, 55876);
+        assert_eq!(metadata.total_bytes, 3064885615);
+        assert_eq!(metadata.aspect_ratio, AspectRatio::Landscape16x9);
+        assert_eq!(metadata.codec, VideoCodec::AV1);
     }
 }
