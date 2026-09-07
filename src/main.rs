@@ -13,8 +13,9 @@ use std::{cmp, io, thread};
 use std::io::BufRead;
 use std::fs::{self, File};
 
+use image::codecs::png::PngEncoder;
 use image::imageops::FilterType;
-use image::{GenericImage, GenericImageView, ImageBuffer, ImageFormat, ImageReader, Rgb, RgbImage, imageops};
+use image::{GenericImage, GenericImageView, ImageBuffer, ImageEncoder, ImageFormat, ImageReader, Rgb, RgbImage, imageops};
 
 use ratatui::{Terminal};
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -67,8 +68,10 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(&working_dir, sys_info);
-    app.set_mosaic_tiles(50, 50);
+    let srgb_profile = include_bytes!("../assets/sRGB2014.icc");
+
+    let mut app = App::new(&working_dir, sys_info, srgb_profile.to_vec());
+    app.set_mosaic_tiles(40, 40);
     app.set_color_tiles(num_color_tiles, num_color_tiles);
 
     if DISABLE_AGGRESIVE_CROPS {
@@ -1108,6 +1111,7 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
 
     let working_dir = app.working_dir.clone();
     let database_dir = app.database_dir.clone();
+    let srgb_profile = app.get_srgb_profile();
 
     thread::spawn(move || {
         // create the database folder
@@ -1268,7 +1272,17 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
 
         let mosaic_image_name = format!("{image_filename}_mosaic_{mosaic_tiles_x}x{mosaic_tiles_y}.png");
         let image_path = working_dir.join(&mosaic_image_name);
-        canvas.save(image_path).unwrap();
+
+        let file_write = fs::File::create_new(&image_path).unwrap();
+
+        let mut encoder = PngEncoder::new(file_write);
+        encoder.set_icc_profile(srgb_profile).unwrap();
+        encoder.write_image(
+            canvas.as_raw(),
+            canvas.width(),
+            canvas.height(),
+            image::ExtendedColorType::Rgb8
+        ).unwrap();
 
         fs::remove_dir_all(&temp_mosaic_dir).unwrap();
     });

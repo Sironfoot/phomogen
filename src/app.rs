@@ -30,6 +30,8 @@ pub struct App {
     pub current_image_index: u32,
     pub images: Vec<ImageFile>,
 
+    srgb_profile: Vec<u8>,
+
     timer: Instant,
     stopped_ellapsed: Option<Duration>,
 
@@ -191,7 +193,7 @@ const DATABASE_DIR: &str = "pmg_data";
 const DEFAULT_COLOR_TILES: u32 = 4;
 
 impl App {
-    pub fn new(wk_dir: &Path, sys_info: SystemInfo) -> App {
+    pub fn new(wk_dir: &Path, sys_info: SystemInfo, srgb_profile: Vec<u8>) -> App {
         let database_dir = wk_dir.join(DATABASE_DIR);
 
         App {
@@ -208,6 +210,7 @@ impl App {
             color_extraction_algorithm: ColorExtractionAlgorithm::PixelArrayTraversal,
             current_image_index: 0,
             images: vec![],
+            srgb_profile: srgb_profile,
             timer: Instant::now(),
             stopped_ellapsed: None,
             allowed_crops: vec![CropLevel::Essential, CropLevel::Moderate, CropLevel::Aggressive],
@@ -247,6 +250,10 @@ impl App {
 
     pub fn allowed_crops(&self) -> &[CropLevel] {
         self.allowed_crops.iter().as_slice()
+    }
+
+    pub fn get_srgb_profile(&self) -> Vec<u8> {
+        self.srgb_profile.clone()
     }
 
     pub fn set_color_tiles(&mut self, num_x: u32, num_y: u32) {
