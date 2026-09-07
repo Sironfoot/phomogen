@@ -13,6 +13,7 @@ use std::{cmp, io, thread};
 use std::io::BufRead;
 use std::fs::{self, File};
 
+use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::PngEncoder;
 use image::imageops::FilterType;
 use image::{GenericImage, GenericImageView, ImageBuffer, ImageEncoder, ImageFormat, ImageReader, Rgb, RgbImage, imageops};
@@ -1113,7 +1114,7 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
         .map(|v| v.metadata.clone())
         .collect::<Vec<_>>();
 
-    let working_dir = app.working_dir.clone();
+    let mosaics_dir = app.mosaics_dir.clone();
     let database_dir = app.database_dir.clone();
     let srgb_profile = app.get_srgb_profile();
 
@@ -1274,17 +1275,37 @@ fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
             canvas.copy_from(&resized, col * tile_width, row * tile_height).unwrap();
         }
 
-        let mosaic_image_name = format!("{image_filename}_mosaic_{mosaic_tiles_x}x{mosaic_tiles_y}.png");
-        let image_path = working_dir.join(&mosaic_image_name);
+        // create print quality version
+        let mosaic_image_name = format!("{image_filename}_{mosaic_tiles_x}x{mosaic_tiles_y}.png");
+        let image_path = mosaics_dir.join(&mosaic_image_name);
 
         let file_write = fs::File::create_new(&image_path).unwrap();
 
         let mut encoder = PngEncoder::new(file_write);
-        encoder.set_icc_profile(srgb_profile).unwrap();
+        encoder.set_icc_profile(srgb_profile.clone()).unwrap();
         encoder.write_image(
             canvas.as_raw(),
             canvas.width(),
             canvas.height(),
+            image::ExtendedColorType::Rgb8
+        ).unwrap();
+
+        // create smaller version
+        let mosaic_image_name = format!("{image_filename}_{mosaic_tiles_x}x{mosaic_tiles_y}.jpeg");
+        let image_path = mosaics_dir.join(&mosaic_image_name);
+
+        let file_write = fs::File::create_new(&image_path).unwrap();
+        let mut encoder = JpegEncoder::new_with_quality(file_write, 99);
+        encoder.set_icc_profile(srgb_profile).unwrap();
+
+        let jpeg_width: u32 = 7680;
+        let jpeg_height: u32 = 4320;
+
+        let jpeg_canvas = imageops::resize(&canvas, jpeg_width, jpeg_height, FilterType::Lanczos3);
+        encoder.write_image(
+            jpeg_canvas.as_raw(),
+            jpeg_canvas.width(),
+            jpeg_canvas.height(),
             image::ExtendedColorType::Rgb8
         ).unwrap();
 

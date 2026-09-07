@@ -16,6 +16,7 @@ pub struct App {
     pub system_info: SystemInfo,
     pub working_dir: PathBuf,
     pub database_dir: PathBuf,
+    pub mosaics_dir: PathBuf,
 
     pub color_tiles_x: u32,
     pub color_tiles_y: u32,
@@ -190,17 +191,20 @@ pub enum ImageType {
 }
 
 const DATABASE_DIR: &str = "pmg_data";
+const MOSAICS_DIR: &str = "pmg_mosaics";
 const DEFAULT_COLOR_TILES: u32 = 4;
 
 impl App {
     pub fn new(wk_dir: &Path, sys_info: SystemInfo, srgb_profile: Vec<u8>) -> App {
         let database_dir = wk_dir.join(DATABASE_DIR);
+        let mosaics_dir = wk_dir.join(MOSAICS_DIR);
 
         App {
             stage: AppStage::Initial,
             system_info: sys_info,
             working_dir: PathBuf::from(wk_dir),
             database_dir: database_dir,
+            mosaics_dir: mosaics_dir,
             color_tiles_x: DEFAULT_COLOR_TILES,
             color_tiles_y: DEFAULT_COLOR_TILES,
             mosaic_tiles_x: 40,
