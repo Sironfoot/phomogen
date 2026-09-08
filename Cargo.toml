@@ -12,3 +12,4 @@ rand = "0.9.5"
 ratatui = "0.30.2"
 ratatui-image = { version = "11.0.6", default-features = false, features = ["crossterm"] }
 sysinfo = "0.39.6"
+terminal-colorsaurus = "1.0.3"

@@ -10,7 +10,7 @@ use ratatui::{
 
 use num_format::{Locale, ToFormattedString};
 
-use crate::app::App;
+use crate::app::{App, AppStage};
 
 pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     let block = Block::default()
@@ -22,9 +22,12 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     frame.render_widget(block, main);
 
     let list_item_height = app.videos.len();
+    let container_width = inner.width;
+    let is_loading = app.stage == AppStage::LoadMosaicDatabase;
 
     let [
         header_section,
+        column_headings_section,
         list_section,
         instructions_section,
         status_section,
@@ -32,6 +35,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     ] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(list_item_height as u16),
             Constraint::Length(2),
@@ -42,31 +46,109 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         .areas(inner);
     
     // title
+    let title_text = if app.stage == AppStage::LoadMosaicDatabase
+        { "Loading databases..." } else { "Please select 1 or more videos from the list" };
+
     let title = Paragraph::new(
-        Text::styled("Please select 1 or more videos from the list", Style::default().bg(Color::Red))
+        Text::styled(title_text, Style::default().bg(Color::Red))
     )
     .wrap(Wrap::default())
     .alignment(ratatui::layout::HorizontalAlignment::Center);
 
     frame.render_widget(title, header_section);
 
-    // list
-    let list_items = app.videos.iter()
-        .map(|v| {
+    let frames_col_width = app.videos.iter()
+        .max_by_key(|v| v.metadata.total_frames)
+        .map(|v| v.metadata.total_frames)
+        .unwrap_or(0)
+        .to_formatted_string(&Locale::en)
+        .len() as u16;
+
+    let duration_col_width = app.videos.iter()
+        .max_by_key(|v| v.metadata.duration)
+        .map(|v| format_duration(v.metadata.duration))
+        .unwrap_or_else(|| format_duration(Duration::new(0, 0)))
+        .len() as u16;
+
+    let db_loaded_symbol = "- ✔";
+    let db_not_loaded_symbol = "   ";
+    let db_col_width = db_loaded_symbol.len() as u16;
+
+    let col_gap: u16 = 3;
+
+    // columns headings
+    let prefix_heading = "  [ ]   ";
+    let prefix_heading_width = prefix_heading.len() as u16;
+
+    let filename_col_width = container_width - (
+        prefix_heading_width +
+        frames_col_width +
+        duration_col_width +
+        db_col_width
+    );
+    let video_heading = format!("{:<spaces$}", "Video", spaces = (filename_col_width - col_gap) as usize);
+    let frames_heading = format!("{:<spaces$}", "Frames", spaces = (frames_col_width + col_gap) as usize);
+    let duration_heading = format!("{:<spaces$}", "Length", spaces = (duration_col_width + col_gap) as usize);
+    let loaded_heading = format!("{:<spaces$}", "DB", spaces = db_col_width as usize);
+    
+
+    let column_headings = Paragraph::new(
+        Text::styled(format!("{prefix_heading}{video_heading}{frames_heading}{duration_heading}{loaded_heading}"), Style::default().add_modifier(Modifier::UNDERLINED))
+    )
+    .wrap(Wrap::default())
+    .alignment(ratatui::layout::HorizontalAlignment::Left);
+
+    frame.render_widget(column_headings, column_headings_section);
+
+    // video list
+    let fake_cursor_space = if is_loading { "  " } else { "" };
+
+    let stripe_color = &app.terminal_palette.background_color
+        .blend_toward(&app.terminal_palette.foreground_color, 5);
+
+    let list_items = app.videos.iter().enumerate()
+        .map(|(i, v)| {
+            let is_even = i % 2 == 0;
+
+            // left aligned parts
             let marker = if v.is_chosen { "[X]" } else { "[ ]" };
-            let style_color = if v.is_chosen { Color::White } else { Color::DarkGray };
-            let style = Style::default().fg(style_color);
+            let data_exists_flag = if v.database_path.is_some() { "✔" } else { " " };
+
+            let filename = &v.metadata.file_name;
+
+            let left_aligned = format!("{fake_cursor_space}{marker} {data_exists_flag} {filename}");
+
+            // right aligned parts
+            let total_frames = v.metadata.total_frames.to_formatted_string(&Locale::en);
+            let total_frames = format!("{:>spaces$}", total_frames, spaces = frames_col_width as usize);
 
             let duration = format_duration(v.metadata.duration);
+            let duration = format!("{:>spaces$}", duration, spaces = duration_col_width as usize);
 
-            let variable_flag = if v.metadata.is_variable_frame_rate { " - (VRF)" } else { "" };
-            let data_exists_flag = if v.database_path.is_some() { "✔" } else { " " };
+            let database_loaded = if v.database.is_some() { db_loaded_symbol} else { db_not_loaded_symbol };
+
+            let right_aligned = format!("{total_frames}   {duration}   {database_loaded}");
+
+            let remaining_space = container_width - (left_aligned.len() + right_aligned.len()) as u16;
+            let spaces = " ".repeat(remaining_space as usize);
+
+            let mut style = Style::default();
+            style = if v.is_chosen { style } else { style.add_modifier(Modifier::DIM) };
+  
+            if is_even {
+                style = style.bg(stripe_color.to_ratatui_color());
+            }
             
-            ListItem::new(format!("{marker} {data_exists_flag} {} - {duration}{variable_flag}{data_exists_flag}", v.metadata.file_name)).style(style)
+            ListItem::new(format!("{left_aligned}{spaces}{right_aligned}")).style(style)
         })
         .collect::<Vec<ListItem>>();
 
-    let mut list_state = ListState::default().with_selected(Some(app.current_video_index as usize));
+    let mut list_state = if !is_loading {
+        ListState::default().with_selected(Some(app.current_video_index as usize))
+    }
+    else {
+        ListState::default()
+    };
 
     let list = List::new(list_items)
         .style(Color::White)

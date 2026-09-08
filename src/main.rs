@@ -174,21 +174,18 @@ where
             },
             AppStage::LoadMosaicDatabase => {
                 if load_database_receiver.is_none() {
-                    let next_video = app.videos.iter()
-                        .find(|v| {
-                            v.is_chosen &&
-                            v.database_path.is_some() &&
-                            v.database.is_none()
-                        });
+                    let requires_loading = app.videos.iter().any(|v| {
+                        v.is_chosen &&
+                        v.database_path.is_some() &&
+                        v.database.is_none()
+                    });
 
-                    match next_video {
-                        Some(video) => {
-                            load_database_receiver = Some(load_database(&video, &app))
-                        },
-                        None => {
-                            app.stage = AppStage::ImageSelect;
-                            should_render = true;
-                        }
+                    if requires_loading {
+                        load_database_receiver = Some(load_database(&app));
+                    }
+                    else {
+                        app.stage = AppStage::ImageSelect;
+                        should_render = true;
                     }
                 }
 
@@ -202,10 +199,22 @@ where
                         if let Some(video) = video {
                             video.total_database_frames_loaded = report.total_frames_processed;
                             video.total_dropped_frames = report.dropped_frames;
+                            video.is_loading_database = true;
                             
                             if let Some(database) = report.database {
                                 video.database = Some(Arc::new(database));
-                                load_database_receiver = None;
+                                video.is_loading_database = false;
+
+                                let more_videos = app.videos.iter().any(|v| {
+                                    v.is_chosen &&
+                                    v.database_path.is_some() &&
+                                    v.database.is_none()
+                                });
+
+                                if !more_videos {
+                                    app.stage = AppStage::ImageSelect;
+                                    load_database_receiver = None;
+                                }
                             }
 
                             should_render = true;
@@ -373,16 +382,16 @@ where
                                 for video in app.videos.iter_mut() {
                                     video.is_chosen = true;
                                 }
+                                should_render = true;
                             },
                             KeyCode::Enter => {
-                                let chosen_videos: Vec<&VideoFile> = app.videos.iter()
-                                    .filter(|v| v.is_chosen)
-                                    .collect();
+                                let at_least_one_selected= app.videos.iter()
+                                    .any(|v| v.is_chosen);
 
-                                if chosen_videos.len() > 0 {
-                                    let require_database: Vec<_> = app.videos.iter_mut()
+                                if at_least_one_selected {
+                                    let require_database = app.videos.iter_mut()
                                         .filter(|v| v.is_chosen && v.database_path.is_none())
-                                        .collect();
+                                        .collect::<Vec<_>>();
 
                                     if require_database.len() > 0 {
                                         for video in require_database {
@@ -393,12 +402,25 @@ where
                                         app.stage = AppStage::GenerateMosaicDatabase;
                                     }
                                     else {
-                                        app.stage = AppStage::LoadMosaicDatabase;
+                                        let require_loading = app.videos.iter_mut()
+                                            .filter(|v| v.is_chosen && v.database_path.is_some() && v.database.is_none())
+                                            .collect::<Vec<_>>();
+
+                                        if require_loading.len() > 0 {
+                                            for video in require_loading {
+                                                video.is_loading_database = true;
+                                            }
+
+                                            app.stage = AppStage::LoadMosaicDatabase;
+                                        }
+                                        else {
+                                            app.stage = AppStage::ImageSelect
+                                        }
                                     }
                                     
                                     should_render = true;
                                 }
-                            }
+                            },
                             _ => {}
                         }
                     },
@@ -770,177 +792,187 @@ struct LoadDatabaseProgressReport {
     database: Option<VideoColorIndexDatabase>,
 }
 
-fn load_database(video: &VideoFile, app: &App) -> Receiver<LoadDatabaseProgressReport> {
+fn load_database(app: &App) -> Receiver<LoadDatabaseProgressReport> {
     let (tx, rc) = mpsc::channel::<LoadDatabaseProgressReport>();
+
+    const REPORT_PROGRESS_AFTER_FRAMES: u32 = 1234;
 
     let color_tiles_x = app.color_tiles_x;
     let color_tiles_y = app.color_tiles_y;
     let total_colors = (color_tiles_x * color_tiles_y) as usize;
 
-    let video_file_name = video.metadata.file_name.clone();
-    let total_frames = video.metadata.total_frames as u32;
-    let database_path = video.database_path.clone().unwrap();
+    let videos_to_load = app.videos.iter()
+        .filter(|v| v.is_chosen && v.database.is_none() && v.database_path.is_some())
+        .collect::<Vec<_>>();
 
-    thread::spawn(move || {
-        const REPORT_PROGRESS_AFTER_FRAMES: u32 = 1234;
-        let mut total_frames_added: u32 = 0;
+    for video in videos_to_load {
+        let video_file_name = video.metadata.file_name.clone();
+        let total_frames = video.metadata.total_frames as u32;
+        let database_path = video.database_path.clone().unwrap();
+        let tx = tx.clone();
 
-        let mut frames: HashMap<u32, FrameData> = HashMap::with_capacity(total_frames as usize);
+        thread::spawn(move || {
+            let mut total_frames_added: u32 = 0;
 
-        let data_file = File::open(&database_path).unwrap();
-        let mut reader = io::BufReader::with_capacity(256 * 1024, data_file);
+            let mut frames: HashMap<u32, FrameData> = HashMap::with_capacity(total_frames as usize);
 
-        let mut dropped_frames: u32 = 0;
+            let data_file = File::open(&database_path).unwrap();
+            let mut reader = io::BufReader::with_capacity(256 * 1024, data_file);
 
-        let max_line_length = 222;
-        let mut line = String::with_capacity(max_line_length);
-        
-        // e.g. 0 100 0 0 1 108,105,100 99,96,99 85,85,77....
-        loop {
-            line.clear();
+            let mut dropped_frames: u32 = 0;
 
-            match reader.read_line(&mut line) {
-                Ok(0) => break,
-                Ok(_) => {},
-                Err(_) => break,
-            }
+            let max_line_length = 222;
+            let mut line = String::with_capacity(max_line_length);
+            
+            // e.g. 0 100 0 0 1 108,105,100 99,96,99 85,85,77....
+            loop {
+                line.clear();
 
-            let mut parts = line.split_ascii_whitespace();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {},
+                    Err(_) => break,
+                }
 
-            // since the database is a basic text file, we needto deal with the potential
-            // that it's been opened and tampered with
+                let mut parts = line.split_ascii_whitespace();
 
-            // get frame index
-            let Some(frame_index) = parts.next().and_then(|part| part.parse::<u32>().ok()) else {
-                dropped_frames += 1;
-                continue;
-            };
+                // since the database is a basic text file, we needto deal with the potential
+                // that it's been opened and tampered with
 
-            // check frame index is valid, can't be more than frames in the video
-            if (frame_index + 1) > total_frames {
-                dropped_frames += 1;
-                continue;
-            }
-
-            // get resize precentage
-            let Some(resize_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
-                dropped_frames += 1;
-                continue;
-            };
-
-            // should be in range 1 - 100
-            if resize_percentage < 1.0 || resize_percentage > 100.0 {
-                dropped_frames += 1;
-                continue;
-            }
-
-            // get pos X
-            let Some(pos_x_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
-                dropped_frames += 1;
-                continue;
-            };
-
-            if pos_x_percentage > 100.0 {
-                dropped_frames += 1;
-                continue;
-            }
-
-            // get pos Y
-            let Some(pos_y_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
-                dropped_frames += 1;
-                continue;
-            };
-
-            if pos_y_percentage > 100.0 {
-                dropped_frames += 1;
-                continue;
-            }
-
-            // get crop level
-            let Some(crop_level) = parts.next().and_then(|v| v.parse::<u8>().ok()) else {
-                dropped_frames += 1;
-                continue;
-            };
-
-            let Ok(crop_level) = CropLevel::try_from(crop_level) else {
-                dropped_frames += 1;
-                continue;
-            };
-
-            let mut colors: Vec<Color> = Vec::with_capacity(total_colors);
-
-            while let Some(color) = parts.next() {
-                let mut rgb= color.split(',');
-
-                let Some(r) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
+                // get frame index
+                let Some(frame_index) = parts.next().and_then(|part| part.parse::<u32>().ok()) else {
+                    dropped_frames += 1;
                     continue;
                 };
 
-                let Some(g) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
+                // check frame index is valid, can't be more than frames in the video
+                if (frame_index + 1) > total_frames {
+                    dropped_frames += 1;
+                    continue;
+                }
+
+                // get resize precentage
+                let Some(resize_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
+                    dropped_frames += 1;
                     continue;
                 };
 
-                let Some(b) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
+                // should be in range 1 - 100
+                if resize_percentage < 1.0 || resize_percentage > 100.0 {
+                    dropped_frames += 1;
+                    continue;
+                }
+
+                // get pos X
+                let Some(pos_x_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
+                    dropped_frames += 1;
                     continue;
                 };
 
-                colors.push(Color { r, g, b });
+                if pos_x_percentage > 100.0 {
+                    dropped_frames += 1;
+                    continue;
+                }
+
+                // get pos Y
+                let Some(pos_y_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
+                    dropped_frames += 1;
+                    continue;
+                };
+
+                if pos_y_percentage > 100.0 {
+                    dropped_frames += 1;
+                    continue;
+                }
+
+                // get crop level
+                let Some(crop_level) = parts.next().and_then(|v| v.parse::<u8>().ok()) else {
+                    dropped_frames += 1;
+                    continue;
+                };
+
+                let Ok(crop_level) = CropLevel::try_from(crop_level) else {
+                    dropped_frames += 1;
+                    continue;
+                };
+
+                let mut colors: Vec<Color> = Vec::with_capacity(total_colors);
+
+                while let Some(color) = parts.next() {
+                    let mut rgb= color.split(',');
+
+                    let Some(r) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
+                        continue;
+                    };
+
+                    let Some(g) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
+                        continue;
+                    };
+
+                    let Some(b) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
+                        continue;
+                    };
+
+                    colors.push(Color { r, g, b });
+                }
+
+                // number of colors should match number of tiles
+                if colors.len() != total_colors {
+                    dropped_frames += 1;
+                    continue;
+                }
+
+                let mut crop = FrameCrop::init(
+                    color_tiles_x,
+                    resize_percentage,
+                    pos_x_percentage,
+                    pos_y_percentage,
+                    crop_level);
+
+                crop.colors = colors;
+
+                let mut new_frame_added = false;
+
+                let frame_data = frames
+                    .entry(frame_index)
+                    .or_insert_with(|| {
+                        new_frame_added = true;
+                        FrameData::new(frame_index)
+                    });
+
+                if new_frame_added {
+                    total_frames_added += 1;
+                }
+
+                frame_data.crops.push(crop);
+
+                if new_frame_added && total_frames_added % REPORT_PROGRESS_AFTER_FRAMES == 0 {
+                    tx.send(LoadDatabaseProgressReport {
+                        video_file_name: video_file_name.clone(),
+                        total_frames_processed: total_frames_added,
+                        dropped_frames,
+                        database: None,
+                    }).unwrap();
+                }
             }
 
-            // number of colors should match number of tiles
-            if colors.len() != total_colors {
-                dropped_frames += 1;
-                continue;
+            if dropped_frames > 0 {
+                panic!("DROPPED FRAMES DETECTED!!");
             }
 
-            let mut crop = FrameCrop::init(
-                color_tiles_x,
-                resize_percentage,
-                pos_x_percentage,
-                pos_y_percentage,
-                crop_level);
+            let color_database = VideoColorIndexDatabase::new(
+                color_tiles_x, color_tiles_y, frames.into_values().collect());
 
-            crop.colors = colors;
+            tx.send(LoadDatabaseProgressReport {
+                video_file_name: video_file_name,
+                total_frames_processed: total_frames_added,
+                dropped_frames,
+                database: Some(color_database),
+            }).unwrap();
+        });
+    }
 
-            let mut new_frame_added = false;
-
-            let frame_data = frames
-                .entry(frame_index)
-                .or_insert_with(|| {
-                    new_frame_added = true;
-                    FrameData::new(frame_index)
-                });
-
-            if new_frame_added {
-                total_frames_added += 1;
-            }
-
-            frame_data.crops.push(crop);
-
-            if new_frame_added && total_frames_added % REPORT_PROGRESS_AFTER_FRAMES == 0 {
-                tx.send(LoadDatabaseProgressReport {
-                    video_file_name: video_file_name.clone(),
-                    total_frames_processed: total_frames_added,
-                    dropped_frames,
-                    database: None,
-                }).unwrap();
-            }
-        }
-
-        if dropped_frames > 0 {
-            panic!("DROPPED FRAMES DETECTED!!");
-        }
-
-        let color_database = VideoColorIndexDatabase::new(
-            color_tiles_x, color_tiles_y, frames.into_values().collect());
-
-        tx.send(LoadDatabaseProgressReport {
-            video_file_name: video_file_name,
-            total_frames_processed: total_frames_added,
-            dropped_frames,
-            database: Some(color_database),
-        }).unwrap();
-    });
+    drop(tx);
 
     rc
 }

@@ -7,6 +7,8 @@ use std::{ops::Add, path::{Path, PathBuf}, sync::Arc, time::{Duration, Instant}}
 
 use image::DynamicImage;
 
+use terminal_colorsaurus::{color_palette, QueryOptions, ThemeMode};
+
 use crate::{app::frame_data::Color, color_matcher::FrameMatch, ffmpeg::{VideoMetadata, color_extractor::ColorExtractionAlgorithm, crops::CropLevel}};
 use crate::app::frame_data::VideoColorIndexDatabase;
 
@@ -31,6 +33,8 @@ pub struct App {
     pub current_image_index: u32,
     pub images: Vec<ImageFile>,
 
+    pub terminal_palette: TerminalTheme,
+
     srgb_profile: Vec<u8>,
 
     timer: Instant,
@@ -47,6 +51,8 @@ pub struct VideoFile {
     pub indexing_report: Option<VideoIndexingReport>,
 
     pub database: Option<Arc<VideoColorIndexDatabase>>,
+
+    pub is_loading_database: bool,
     pub total_database_frames_loaded: u32,
     pub total_dropped_frames: u32,
 }
@@ -59,6 +65,7 @@ impl VideoFile {
             database_path: None,
             indexing_report: None,
             database: None,
+            is_loading_database: false,
             total_database_frames_loaded: 0,
             total_dropped_frames: 0,
         }
@@ -199,6 +206,30 @@ impl App {
         let database_dir = wk_dir.join(DATABASE_DIR);
         let mosaics_dir = wk_dir.join(MOSAICS_DIR);
 
+        let terminal_palette = match color_palette(QueryOptions::default()) {
+            Ok(palette) => {
+                let mode = if palette.theme_mode() == ThemeMode::Light
+                    { TerminalThemeMode::Light } else { TerminalThemeMode::Dark };
+
+                let (fg_r, fg_g, fg_b) = palette.foreground.scale_to_8bit();
+                let (bg_r, bg_g, bg_b) = palette.background.scale_to_8bit();
+
+                TerminalTheme {
+                    mode: mode,
+                    foreground_color: Color { r: fg_r, g: fg_g, b: fg_b },
+                    background_color: Color { r: bg_r, g: bg_g, b: bg_b },
+                }
+            },
+            Err(_) => {
+                // assume dark mode
+                TerminalTheme {
+                    mode: TerminalThemeMode::Dark,
+                    foreground_color: Color { r: 255, g: 255, b: 255 },
+                    background_color: Color { r: 0, g: 0, b: 0 },
+                }
+            }
+        };
+
         App {
             stage: AppStage::Initial,
             system_info: sys_info,
@@ -214,6 +245,7 @@ impl App {
             color_extraction_algorithm: ColorExtractionAlgorithm::PixelArrayTraversal,
             current_image_index: 0,
             images: vec![],
+            terminal_palette,
             srgb_profile: srgb_profile,
             timer: Instant::now(),
             stopped_ellapsed: None,
@@ -311,6 +343,17 @@ impl App {
 
         (100.0 / total_frames as f64) * frames_processed as f64
     }
+}
+
+pub struct TerminalTheme {
+    pub mode: TerminalThemeMode,
+    pub foreground_color: Color,
+    pub background_color: Color,
+}
+
+pub enum TerminalThemeMode {
+    Light,
+    Dark,
 }
 
 #[derive(PartialEq)]

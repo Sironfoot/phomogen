@@ -2,7 +2,6 @@ pub mod under_construction;
 pub mod initial_loading;
 pub mod video_selection;
 pub mod generate_database;
-pub mod load_databaqse;
 pub mod image_selection;
 pub mod finding_matches;
 
@@ -46,9 +45,8 @@ pub fn render_ui(frame: &mut Frame, app: &mut App){
     // Main section
     match app.stage {
         AppStage::Initial => initial_loading::render(frame, main_content),
-        AppStage::VideoSelect => video_selection::render(frame, main_content, app),
+        AppStage::VideoSelect | AppStage::LoadMosaicDatabase => video_selection::render(frame, main_content, app),
         AppStage::GenerateMosaicDatabase => generate_database::render(frame, main_content, app),
-        AppStage::LoadMosaicDatabase => load_databaqse::render(frame, main_content, app),
         AppStage::ImageSelect => image_selection::render(frame, main_content, app),
         AppStage::FindingMatches => finding_matches::render(frame, main_content, app),
         _ => under_construction::render(frame, main_content),

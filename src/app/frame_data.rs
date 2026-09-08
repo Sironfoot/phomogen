@@ -76,3 +76,43 @@ pub struct Color {
     pub g: u8,
     pub b: u8,
 }
+
+impl Color {
+    pub fn darken(&self, percentage: u8) -> Color{
+        let percentage = percentage.min(100) as f32;
+
+        Color {
+            r: self.r - ((self.r as f32 / 100.0) * percentage).round() as u8,
+            g: self.g - ((self.g as f32 / 100.0) * percentage).round() as u8,
+            b: self.b - ((self.b as f32 / 100.0) * percentage).round() as u8,
+        }
+    }
+
+    pub fn lighten(&self, percentage: u8) -> Color{
+        let percentage = percentage.min(100) as f32;
+
+        Color {
+            r: self.r + ((self.r as f32 / 100.0) * percentage).round() as u8,
+            g: self.g + ((self.g as f32 / 100.0) * percentage).round() as u8,
+            b: self.b + ((self.b as f32 / 100.0) * percentage).round() as u8,
+        }
+    }
+
+    pub fn blend_toward(&self, toward: &Color, percentage: u8) -> Color {
+        let percentage = percentage.min(100) as f32;
+
+        Color {
+            r: Self::blend_channel(self.r, toward.r, percentage),
+            g: Self::blend_channel(self.g, toward.g, percentage),
+            b: Self::blend_channel(self.b, toward.b, percentage),
+        }
+    }
+
+    fn blend_channel(base: u8, toward: u8, percentage: f32) -> u8 {
+        ((base as f32 * (100.0 - percentage) + toward as f32 * percentage) / 100.0).round() as u8
+    }
+
+    pub fn to_ratatui_color(&self) -> ratatui::style::Color {
+        ratatui::style::Color::Rgb(self.r, self.g, self.b)
+    }
+}
