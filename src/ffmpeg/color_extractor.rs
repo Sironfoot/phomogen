@@ -27,7 +27,7 @@ const DEFAULT_RESIZE_WIDTH: u32 = 1920;
 const SMALLEST_RESIZED_WIDTH:u32 = 640;
 const DEFAULT_MAX_FFMPEG_THREADS: u32 = 4;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum ColorExtractionAlgorithm {
     PixelArrayTraversal,
     SummedAreaTable,

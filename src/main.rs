@@ -45,7 +45,7 @@ fn main() -> Result<()> {
     // TODO: replace with CLI args + better error handling
     const TEST_DIR: &str = "./videos";
     const TEST_COLOR_TILES: u32 = 8;
-    const DISABLE_AGGRESIVE_CROPS: bool = false;
+    const DISABLE_AGGRESIVE_CROPS: bool = true;
     const DISABLE_ALL_CROPS: bool = false;
 
     let wk_dir = TEST_DIR;
@@ -72,8 +72,9 @@ fn main() -> Result<()> {
     let srgb_profile = include_bytes!("../assets/sRGB2014.icc");
 
     let mut app = App::new(&working_dir, sys_info, srgb_profile.to_vec());
-    app.set_mosaic_tiles(40, 40);
+    app.set_mosaic_tiles(60, 60);
     app.set_color_tiles(num_color_tiles, num_color_tiles);
+    app.color_extraction_algorithm = ColorExtractionAlgorithm::SummedAreaTable;
 
     if DISABLE_AGGRESIVE_CROPS {
         app.disallow_crop_level(CropLevel::Aggressive);
@@ -499,6 +500,7 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
     let color_tiles_y = app.color_tiles_y;
 
     let video = video.clone();
+    let color_extracion_algorithm = app.color_extraction_algorithm.clone();
 
     thread::spawn(move || {
         // create the database folder
@@ -542,6 +544,7 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
             let temp_file_name = format!("{}_core-{worker_index}_temp.pmgd", video.file_name);
             let temp_file_path = database_dir.join(temp_file_name);
 
+            let color_extracion_algorithm = color_extracion_algorithm.clone();
             let video = video.clone();
             let tx = tx.clone();
 
@@ -562,7 +565,7 @@ fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexing
                     color_tiles_y,
                     temp_file_path.as_path()).unwrap();
 
-                extractor.set_algorithm(ColorExtractionAlgorithm::PixelArrayTraversal);
+                extractor.set_algorithm(color_extracion_algorithm);
                 extractor.set_resize_width(1920);
                 extractor.set_max_threads(ffmpeg_threads);
 
