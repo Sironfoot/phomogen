@@ -34,7 +34,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .padding(Padding::uniform(1))
-        .title("  Select Videos > Select Images  ")
+        .title("  Select Videos > Select Image  ")
         .style(Style::default());
 
     let inner = block.inner(main);
@@ -55,7 +55,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
             Constraint::Length(list_item_height as u16),
             Constraint::Length(2),
             Constraint::Min(0),
-            Constraint::Length(1),
+            Constraint::Length(3),
         ])
         .spacing(1)
         .areas(inner);
@@ -152,7 +152,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     let cont_color = if at_least_one_selected { Color::White } else { Color::DarkGray };
 
     let continue_instructions =  Paragraph::new(
-        Text::styled("Press (Enter) to continue.", Style::default().fg(cont_color))
+        Text::styled("Press (Enter) to continue.\n\nPress (Backspace) to go back.", Style::default().fg(cont_color))
     )
     .wrap(Wrap::default())
     .alignment(HorizontalAlignment::Center);

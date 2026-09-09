@@ -31,7 +31,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title("  Select Videos > Select Images > Generate Mosaic  ")
+        .title("  Select Videos > Select Image > Generate Mosaic  ")
         .padding(Padding::uniform(1))
         .style(Style::default());
 

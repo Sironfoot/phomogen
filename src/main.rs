@@ -488,7 +488,11 @@ where
                                     app.stage = AppStage::ProcessImage;
                                 }
                                 should_render = true;
-                            }
+                            },
+                            KeyCode::Backspace => {
+                                app.stage = AppStage::VideoSelect;
+                                should_render = true;
+                            },
                             _ => {}
                         }
                     },
