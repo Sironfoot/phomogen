@@ -424,15 +424,6 @@ where
                             _ => {}
                         }
                     },
-                    AppStage::LoadMosaicDatabase => {
-                        match key.code {
-                            KeyCode::Enter => {
-                                app.stage = AppStage::ImageSelect;
-                                should_render = true;
-                            }
-                            _ => {}
-                        }
-                    },
                     AppStage::ImageSelect => {
                         match key.code {
                             KeyCode::Up => {

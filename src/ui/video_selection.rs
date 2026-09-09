@@ -2,10 +2,30 @@ use std::time::Duration;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, HorizontalAlignment, Layout, Rect},
-    style::{Color, Modifier, Style},
+    layout::{
+        Constraint,
+        Direction,
+        HorizontalAlignment,
+        Layout,
+        Rect
+    },
+    style::{
+        Color,
+        Modifier,
+        Style
+    },
     text::Text,
-    widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph, Wrap}
+    widgets::{
+        Block,
+        Borders,
+        Cell,
+        Padding,
+        Paragraph,
+        Row,
+        Table,
+        TableState,
+        Wrap
+    }
 };
 
 use num_format::{Locale, ToFormattedString};
@@ -22,12 +42,10 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     frame.render_widget(block, main);
 
     let list_item_height = app.videos.len();
-    let container_width = inner.width;
     let is_loading = app.stage == AppStage::LoadMosaicDatabase;
 
     let [
         header_section,
-        column_headings_section,
         list_section,
         instructions_section,
         status_section,
@@ -36,8 +54,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(list_item_height as u16),
+            Constraint::Length((list_item_height + 2) as u16),
             Constraint::Length(2),
             Constraint::Length(3),
             Constraint::Length(1),
@@ -46,8 +63,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         .areas(inner);
     
     // title
-    let title_text = if app.stage == AppStage::LoadMosaicDatabase
-        { "Loading databases..." } else { "Please select 1 or more videos from the list" };
+    let title_text = if is_loading { "Loading databases..." } else { "Please select 1 or more videos from the list" };
 
     let title = Paragraph::new(
         Text::styled(title_text, Style::default().bg(Color::Red))
@@ -70,92 +86,85 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         .unwrap_or_else(|| format_duration(Duration::new(0, 0)))
         .len() as u16;
 
-    let db_loaded_symbol = "- ✔";
-    let db_not_loaded_symbol = "   ";
-    let db_col_width = db_loaded_symbol.len() as u16;
+    // render table
+    let highlight_symbol = "> ";
 
-    let col_gap: u16 = 3;
+    let select_heading = if is_loading { "  [ ]" } else { "[ ]" };
+    let video_heading = "Video";
+    let frames_heading = "Frames";
+    let duration_heading = "Length";
+    let db_loaded_heading = "DB";
 
-    // columns headings
-    let prefix_heading = "  [ ]   ";
-    let prefix_heading_width = prefix_heading.len() as u16;
-
-    let filename_col_width = container_width - (
-        prefix_heading_width +
-        frames_col_width +
-        duration_col_width +
-        db_col_width
-    );
-    let video_heading = format!("{:<spaces$}", "Video", spaces = (filename_col_width - col_gap) as usize);
-    let frames_heading = format!("{:<spaces$}", "Frames", spaces = (frames_col_width + col_gap) as usize);
-    let duration_heading = format!("{:<spaces$}", "Length", spaces = (duration_col_width + col_gap) as usize);
-    let loaded_heading = format!("{:<spaces$}", "DB", spaces = db_col_width as usize);
-    
-
-    let column_headings = Paragraph::new(
-        Text::styled(format!("{prefix_heading}{video_heading}{frames_heading}{duration_heading}{loaded_heading}"), Style::default().add_modifier(Modifier::UNDERLINED))
-    )
-    .wrap(Wrap::default())
-    .alignment(ratatui::layout::HorizontalAlignment::Left);
-
-    frame.render_widget(column_headings, column_headings_section);
-
-    // video list
-    let fake_cursor_space = if is_loading { "  " } else { "" };
+    let header = Row::new([
+        Cell::from(select_heading),
+        Cell::from(""), 
+        Cell::from(Text::from(video_heading).left_aligned()),
+        Cell::from(Text::from(frames_heading).left_aligned()),
+        Cell::from(Text::from(duration_heading).left_aligned()),
+        Cell::from(Text::from(db_loaded_heading).right_aligned()),
+    ])
+    .style(Style::default().bold())
+    .bottom_margin(1);
 
     let stripe_color = &app.terminal_palette.background_color
         .blend_toward(&app.terminal_palette.foreground_color, 5);
 
-    let list_items = app.videos.iter().enumerate()
-        .map(|(i, v)| {
-            let is_even = i % 2 == 0;
+    let rows = app.videos.iter().enumerate().map(|(i, v)| {
+        let marker = if v.is_chosen { "[X]" } else { "[ ]" };
+        let marker = if is_loading { format!("  {marker}") } else { String::from(marker) };
 
-            // left aligned parts
-            let marker = if v.is_chosen { "[X]" } else { "[ ]" };
-            let data_exists_flag = if v.database_path.is_some() { "✔" } else { " " };
+        let data_exists_flag = if v.database_path.is_some() { "✔" } else { "" };
+        let filename = v.metadata.file_name.as_str();
+        let total_frames = v.metadata.total_frames.to_formatted_string(&Locale::en);
+        let duration = format_duration(v.metadata.duration);
 
-            let filename = &v.metadata.file_name;
+        let db_loaded = if v.is_loading_database {
+            let percentage_complete = ((100.0 / v.metadata.total_frames as f64) * v.total_database_frames_loaded as f64).round() as u8;
+            format!("{percentage_complete}%")
+        }
+        else {
+            if v.database.is_some() { String::from(" ✔") } else { String::from("  ") }
+        };
 
-            let left_aligned = format!("{fake_cursor_space}{marker} {data_exists_flag} {filename}");
+        let is_even = i % 2 == 0;
 
-            // right aligned parts
-            let total_frames = v.metadata.total_frames.to_formatted_string(&Locale::en);
-            let total_frames = format!("{:>spaces$}", total_frames, spaces = frames_col_width as usize);
+        let mut style = Style::default();
+        style = if v.is_chosen { style } else { style.add_modifier(Modifier::DIM) };
 
-            let duration = format_duration(v.metadata.duration);
-            let duration = format!("{:>spaces$}", duration, spaces = duration_col_width as usize);
+        if is_even {
+            style = style.bg(stripe_color.to_ratatui_color());
+        }
 
-            let database_loaded = if v.database.is_some() { db_loaded_symbol} else { db_not_loaded_symbol };
+        Row::new([
+            Cell::from(marker),
+            Cell::from(data_exists_flag),
+            Cell::from(filename),
+            Cell::from(Text::from(total_frames).right_aligned()),
+            Cell::from(Text::from(duration).right_aligned()),
+            Cell::from(Text::from(db_loaded).right_aligned()),
+        ]).style(style)
+    });
 
-            let right_aligned = format!("{total_frames}   {duration}   {database_loaded}");
+    let column_widths = [
+        Constraint::Length(select_heading.len() as u16),
+        Constraint::Length(1),
+        Constraint::Min(1),
+        Constraint::Length(frames_col_width.max(frames_heading.len() as u16)),
+        Constraint::Length(duration_col_width.max(duration_heading.len() as u16)),
+        Constraint::Length(3),
+    ];
 
-            let remaining_space = container_width - (left_aligned.len() + right_aligned.len()) as u16;
-            let spaces = " ".repeat(remaining_space as usize);
-
-            let mut style = Style::default();
-            style = if v.is_chosen { style } else { style.add_modifier(Modifier::DIM) };
-  
-            if is_even {
-                style = style.bg(stripe_color.to_ratatui_color());
-            }
-            
-            ListItem::new(format!("{left_aligned}{spaces}{right_aligned}")).style(style)
-        })
-        .collect::<Vec<ListItem>>();
-
-    let mut list_state = if !is_loading {
-        ListState::default().with_selected(Some(app.current_video_index as usize))
-    }
-    else {
-        ListState::default()
-    };
-
-    let list = List::new(list_items)
+    let table = Table::new(rows, column_widths)
+        .header(header)
+        .column_spacing(2)
         .style(Color::White)
-        .highlight_style(Modifier::REVERSED)
-        .highlight_symbol("> ");
+        .row_highlight_style(Modifier::REVERSED)
+        .highlight_symbol(highlight_symbol);
 
-    frame.render_stateful_widget(list, list_section, &mut list_state);
+    let mut table_state = if is_loading { TableState::default() }
+        else { TableState::default().with_selected(app.current_video_index as usize) };
+
+    frame.render_stateful_widget(table, list_section, &mut table_state);
 
     // instructions
     let instructions_text = indoc::indoc! {"
@@ -222,7 +231,8 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
 
     // continue message
     let at_least_one_selected = app.videos.iter().any(|v| v.is_chosen);
-    let cont_color = if at_least_one_selected { Color::White } else { Color::DarkGray };
+    let continue_active = at_least_one_selected && !is_loading;
+    let cont_color = if continue_active { Color::White } else { Color::DarkGray };
 
     let continue_instructions =  Paragraph::new(
         Text::styled("Press (Enter) to continue.", Style::default().fg(cont_color))
