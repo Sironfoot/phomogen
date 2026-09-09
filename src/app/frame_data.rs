@@ -42,30 +42,30 @@ impl FrameData {
 
 #[derive(Debug)]
 pub struct FrameCrop {
-    pub resize_percentage: f64,
-    pub pos_x_percentage: f64,
-    pub pos_y_percentage: f64,
+    pub resize_percentage: f32,
+    pub pos_x_percentage: f32,
+    pub pos_y_percentage: f32,
     pub crop_level: CropLevel,
 
-    tiles_x: usize,
+    tiles_x: u8,
     pub colors: Vec<Color>,
 }
 
 impl FrameCrop {
-    pub fn init(tiles_x: u32, resize_percentage: f64, pos_x_percentage: f64, pos_y_percentage: f64, crop_level: CropLevel) -> FrameCrop {
+    pub fn init(tiles_x: u8, resize_percentage: f32, pos_x_percentage: f32, pos_y_percentage: f32, crop_level: CropLevel) -> FrameCrop {
         FrameCrop {
             resize_percentage,
             pos_x_percentage,
             pos_y_percentage,
             crop_level,
-            tiles_x: tiles_x as usize,
+            tiles_x: tiles_x,
             colors: vec![]
         }
     }
 
     pub fn colors_flipped(&self) -> impl Iterator<Item = &Color> + '_ {
         self.colors
-            .chunks_exact(self.tiles_x)
+            .chunks_exact(self.tiles_x as usize)
             .flat_map(|row| row.iter().rev())
     }
 }

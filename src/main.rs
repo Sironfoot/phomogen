@@ -45,7 +45,7 @@ fn main() -> Result<()> {
     // TODO: replace with CLI args + better error handling
     const TEST_DIR: &str = "./videos";
     const TEST_COLOR_TILES: u32 = 8;
-    const DISABLE_AGGRESIVE_CROPS: bool = true;
+    const DISABLE_AGGRESIVE_CROPS: bool = false;
     const DISABLE_ALL_CROPS: bool = false;
 
     let wk_dir = TEST_DIR;
@@ -72,7 +72,7 @@ fn main() -> Result<()> {
     let srgb_profile = include_bytes!("../assets/sRGB2014.icc");
 
     let mut app = App::new(&working_dir, sys_info, srgb_profile.to_vec());
-    app.set_mosaic_tiles(60, 60);
+    app.set_mosaic_tiles(40, 40);
     app.set_color_tiles(num_color_tiles, num_color_tiles);
     app.color_extraction_algorithm = ColorExtractionAlgorithm::SummedAreaTable;
 
@@ -847,7 +847,7 @@ fn load_database(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                 }
 
                 // get resize precentage
-                let Some(resize_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
+                let Some(resize_percentage) = parts.next().and_then(|v| v.parse::<f32>().ok()) else {
                     dropped_frames += 1;
                     continue;
                 };
@@ -859,7 +859,7 @@ fn load_database(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                 }
 
                 // get pos X
-                let Some(pos_x_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
+                let Some(pos_x_percentage) = parts.next().and_then(|v| v.parse::<f32>().ok()) else {
                     dropped_frames += 1;
                     continue;
                 };
@@ -870,7 +870,7 @@ fn load_database(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                 }
 
                 // get pos Y
-                let Some(pos_y_percentage) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
+                let Some(pos_y_percentage) = parts.next().and_then(|v| v.parse::<f32>().ok()) else {
                     dropped_frames += 1;
                     continue;
                 };
@@ -918,7 +918,7 @@ fn load_database(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                 }
 
                 let mut crop = FrameCrop::init(
-                    color_tiles_x,
+                    color_tiles_x as u8,
                     resize_percentage,
                     pos_x_percentage,
                     pos_y_percentage,

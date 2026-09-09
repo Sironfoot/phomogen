@@ -14,9 +14,9 @@ pub struct VideoFrameMatch {
     pub tile_index: u32,
     pub frame_index: u32,
     
-    pub crop_resize: f64,
-    pub crop_pos_x: f64,
-    pub crop_pos_y: f64,
+    pub crop_resize: f32,
+    pub crop_pos_x: f32,
+    pub crop_pos_y: f32,
     pub is_flipped: bool,
 }
 
@@ -117,11 +117,11 @@ impl FrameExtractor {
                             .filter(|frame_match| frame_match.frame_index == frame_index);
 
                         for matched_frame in matches {
-                            let pos_x = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_pos_x) as u32;
-                            let pos_y = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_pos_y) as u32;
+                            let pos_x = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_pos_x as f64) as u32;
+                            let pos_y = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_pos_y as f64) as u32;
                         
-                            let cropped_width = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_resize) as u32;
-                            let cropped_height = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_resize) as u32;
+                            let cropped_width = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_resize as f64) as u32;
+                            let cropped_height = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_resize as f64) as u32;
                         
                             let mut crop = imageops::crop_imm(&image, pos_x, pos_y, cropped_width, cropped_height).to_image();
                             
