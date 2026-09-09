@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::Text,
-    widgets::{Block, Borders, Gauge, Padding, Paragraph, Wrap}
+    widgets::{Block, Borders, BorderType, Gauge, Padding, Paragraph, Wrap}
 };
 
 use num_format::{Locale, ToFormattedString};
@@ -13,7 +13,9 @@ use crate::app::{App, VideoIndexStatus};
 pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .padding(Padding::uniform(1))
+        .title("  Select Videos (Generating Database)  ")
         .style(Style::default());
 
     let inner = block.inner(main);

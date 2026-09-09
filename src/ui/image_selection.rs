@@ -1,5 +1,29 @@
 use ratatui::{
-    Frame, layout::{Constraint, Direction, HorizontalAlignment, Layout, Rect, Size}, style::{Color, Modifier, Style}, text::Text, widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph, Wrap}
+    Frame,
+    layout::{
+        Constraint,
+        Direction,
+        HorizontalAlignment,
+        Layout,
+        Rect,
+        Size
+    },
+    style::{
+        Color,
+        Modifier,
+        Style
+    },
+    text::Text,
+    widgets::{
+        Block,
+        BorderType,
+        Borders,
+        List,
+        ListItem,
+        ListState,
+        Padding,
+        Paragraph, Wrap
+    }
 };
 use ratatui_image::{FilterType, Image, Resize, picker::Picker};
 
@@ -8,7 +32,9 @@ use crate::app::App;
 pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .padding(Padding::uniform(1))
+        .title("  Select Videos > Select Images  ")
         .style(Style::default());
 
     let inner = block.inner(main);

@@ -1,30 +1,18 @@
 use std::time::Duration;
 
 use ratatui::{
-    Frame,
-    layout::{
+    Frame, layout::{
         Constraint,
         Direction,
         HorizontalAlignment,
         Layout,
         Rect
-    },
-    style::{
+    }, style::{
         Color,
         Modifier,
         Style
-    },
-    text::Text,
-    widgets::{
-        Block,
-        Borders,
-        Cell,
-        Padding,
-        Paragraph,
-        Row,
-        Table,
-        TableState,
-        Wrap
+    }, text::Text, widgets::{
+        Block, BorderType, Borders, Cell, Padding, Paragraph, Row, Table, TableState, Wrap
     }
 };
 
@@ -35,7 +23,9 @@ use crate::app::{App, AppStage};
 pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .padding(Padding::uniform(1))
+        .title("  Select Videos  ")
         .style(Style::default());
 
     let inner = block.inner(main);

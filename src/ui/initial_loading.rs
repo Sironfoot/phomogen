@@ -3,12 +3,13 @@ use ratatui::{
     layout::Rect,
     style::{Color, Style},
     text::Text,
-    widgets::{Block, Borders, Padding, Paragraph}
+    widgets::{Block, Borders, BorderType, Padding, Paragraph}
 };
 
 pub fn render(frame: &mut Frame, main: Rect) {
     let main_block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .padding(Padding::uniform(1))
         .style(Style::default());
 

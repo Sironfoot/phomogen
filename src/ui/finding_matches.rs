@@ -1,5 +1,27 @@
 use ratatui::{
-    Frame, layout::{Constraint, Direction, Layout, Rect, Size}, style::{Color, Modifier, Style}, text::Text, widgets::{Block, Borders, Gauge, Padding, Paragraph, Wrap}
+    Frame,
+    layout::{
+        Constraint,
+        Direction,
+        Layout,
+        Rect,
+        Size
+    },
+    style::{
+        Color,
+        Modifier,
+        Style
+    },
+    text::Text,
+    widgets::{
+        Block,
+        BorderType,
+        Borders,
+        Gauge,
+        Padding,
+        Paragraph,
+        Wrap
+    }
 };
 use ratatui_image::{FilterType, Image, Resize, picker::Picker};
 
@@ -8,6 +30,8 @@ use crate::app::{App};
 pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title("  Select Videos > Select Images > Generate Mosaic  ")
         .padding(Padding::uniform(1))
         .style(Style::default());
 

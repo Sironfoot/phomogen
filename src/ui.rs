@@ -7,10 +7,22 @@ pub mod finding_matches;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
+    layout::{
+        Constraint,
+        Direction,
+        Layout
+    },
+    style::{
+        Color,
+        Style
+    },
     text::Text,
-    widgets::{Block, Borders, Paragraph}
+    widgets::{
+        Block,
+        BorderType,
+        Borders,
+        Paragraph
+    }
 };
 
 use crate::{app::{App, AppStage}};
@@ -32,6 +44,7 @@ pub fn render_ui(frame: &mut Frame, app: &mut App){
 
     let header_block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .style(Style::default());
 
     let title = Paragraph::new(
@@ -55,6 +68,7 @@ pub fn render_ui(frame: &mut Frame, app: &mut App){
     // Footer
     let footer_block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .style(Style::default());
 
     let footer_text = Paragraph::new(
