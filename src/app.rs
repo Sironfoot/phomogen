@@ -5,11 +5,9 @@ pub mod frame_data;
 
 use std::{ops::Add, path::{Path, PathBuf}, sync::Arc, time::{Duration, Instant}};
 
-use image::DynamicImage;
-
 use terminal_colorsaurus::{color_palette, QueryOptions, ThemeMode};
 
-use crate::{app::frame_data::Color, color_matcher::FrameMatch, ffmpeg::{VideoMetadata, color_extractor::ColorExtractionAlgorithm, crops::CropLevel}};
+use crate::{app::frame_data::Color, color_matcher::FrameMatch, ffmpeg::{VideoMetadata, color_extractor::ColorExtractionAlgorithm, crops::CropLevel}, images::PreviewImage};
 use crate::app::frame_data::VideoColorIndexDatabase;
 
 pub struct App {
@@ -78,7 +76,7 @@ pub struct ImageFile {
     pub width: u32,
     pub height: u32,
     pub format: ImageType,
-    pub preview: Option<DynamicImage>, 
+    pub preview: Option<PreviewImage>, 
     pub is_chosen: bool,
 
     pub image_tiles: Option<Arc<Vec<ImageTile>>>,

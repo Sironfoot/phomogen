@@ -1,3 +1,5 @@
+use image::Rgba;
+
 use crate::ffmpeg::crops::CropLevel;
 
 pub struct VideoColorIndexDatabase {
@@ -78,30 +80,35 @@ pub struct Color {
 }
 
 impl Color {
-    pub fn darken(&self, percentage: u8) -> Color{
+    pub fn from_rgba(rgba: Rgba<u8>) -> Self {
+        let [r, g, b, _] = rgba.0;
+        Self { r, g, b }
+    }
+
+    pub fn darken(&self, percentage: u8) -> Self {
         let percentage = percentage.min(100) as f32;
 
-        Color {
+        Self {
             r: self.r - ((self.r as f32 / 100.0) * percentage).round() as u8,
             g: self.g - ((self.g as f32 / 100.0) * percentage).round() as u8,
             b: self.b - ((self.b as f32 / 100.0) * percentage).round() as u8,
         }
     }
 
-    pub fn lighten(&self, percentage: u8) -> Color{
+    pub fn lighten(&self, percentage: u8) -> Self {
         let percentage = percentage.min(100) as f32;
 
-        Color {
+        Self {
             r: self.r + ((self.r as f32 / 100.0) * percentage).round() as u8,
             g: self.g + ((self.g as f32 / 100.0) * percentage).round() as u8,
             b: self.b + ((self.b as f32 / 100.0) * percentage).round() as u8,
         }
     }
 
-    pub fn blend_toward(&self, toward: &Color, percentage: u8) -> Color {
+    pub fn blend_toward(&self, toward: &Self, percentage: u8) -> Self {
         let percentage = percentage.min(100) as f32;
 
-        Color {
+        Self {
             r: Self::blend_channel(self.r, toward.r, percentage),
             g: Self::blend_channel(self.g, toward.g, percentage),
             b: Self::blend_channel(self.b, toward.b, percentage),
@@ -114,5 +121,9 @@ impl Color {
 
     pub fn to_ratatui_color(&self) -> ratatui::style::Color {
         ratatui::style::Color::Rgb(self.r, self.g, self.b)
+    }
+
+    pub fn to_rgba_color(&self) -> image::Rgba<u8> {
+        image::Rgba([self.r, self.g, self.b, 255])
     }
 }

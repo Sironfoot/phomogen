@@ -140,7 +140,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
 
             let size = Size::new(image_width, image_height);
             let picker = Picker::halfblocks();
-            let protocol = picker.new_protocol(image.clone(), size, Resize::Scale(Some(FilterType::Nearest))).unwrap();
+            let protocol = picker.new_protocol(image.image().clone(), size, Resize::Scale(Some(FilterType::Nearest))).unwrap();
             let image_widget = Image::new(&protocol);
 
             frame.render_widget(image_widget, image_area);

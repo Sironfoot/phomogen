@@ -3,6 +3,7 @@ pub mod ui;
 pub mod ffmpeg;
 pub mod color_matcher;
 pub mod tile_blender;
+pub mod images;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -40,6 +41,7 @@ use crate::tile_blender::TileBlender;
 use crate::ui::render_ui;
 use crate::ffmpeg::VideoMetadata;
 use crate::app::frame_data::{Color, FrameCrop, FrameData, VideoColorIndexDatabase};
+use crate::images::PreviewImage;
 
 fn main() -> Result<()> {
     // TODO: replace with CLI args + better error handling
@@ -235,19 +237,7 @@ where
                         if app.images.len() > 0 {
                             if let Some(selected_image) = app.images.get_mut(0) {
                                 selected_image.is_chosen = true;
-
-                                if let Ok(image) = image::open(&selected_image.full_path) {
-                                    let image = if image.width() > 320 {
-                                        let ratio = image.height() as f64 / image.width() as f64;
-                                        let height = f64::round(320 as f64 * ratio) as u32;
-                                        image.resize(320, height, ratatui_image::FilterType::Lanczos3)
-                                    }
-                                    else {
-                                        image
-                                    };
-
-                                    selected_image.preview = Some(image);
-                                }
+                                selected_image.preview = PreviewImage::new(&selected_image.full_path).ok();
                             }
                         }
                     }
@@ -262,6 +252,11 @@ where
                     if let Ok(image_tiles) = rc.try_recv() {
                         if let Some(image) = app.images.iter_mut().find(|i| i.is_chosen) {
                             image.image_tiles = Some(Arc::new(image_tiles));
+                            
+                            if let Some(preview_image) = image.preview.as_mut() {
+                                preview_image.generate_progress_image(app.mosaic_tiles_x, app.mosaic_tiles_y);
+                            }
+
                             calculate_image_colors_receiver = None;
 
                             app.stage = AppStage::FindingMatches;
@@ -289,7 +284,15 @@ where
                             }
 
                             for frame_match in matches {
+                                let tile_index = frame_match.tile_index;
                                 chosen_image.matched_tiles.as_mut().unwrap().push(frame_match);
+
+                                let row = tile_index / app.mosaic_tiles_x;
+                                let col = tile_index % app.mosaic_tiles_y;
+
+                                if let Some(preview_image) = chosen_image.preview.as_mut() {
+                                    preview_image.add_progress_tile(col, row);
+                                }
                             }
 
                             let total_mosaic_tiles = (app.mosaic_tiles_x * app.mosaic_tiles_y) as usize;
@@ -462,22 +465,8 @@ where
                                 let selected_image = app.images.get_mut(image_index as usize);
                                 if let Some(selected_image) = selected_image {
                                     selected_image.is_chosen = true;
-
                                     if selected_image.preview.is_none() {
-                                        let image_path = app.working_dir.join(selected_image.file_name.clone());
-
-                                        if let Ok(image) = image::open(image_path) {
-                                            let image = if image.width() > 320 {
-                                                let ratio = image.height() as f64 / image.width() as f64;
-                                                let height = f64::round(320 as f64 * ratio) as u32;
-                                                image.resize(320, height, ratatui_image::FilterType::Lanczos3)
-                                            }
-                                            else {
-                                                image
-                                            };
-
-                                            selected_image.preview = Some(image);
-                                        }
+                                        selected_image.preview = PreviewImage::new(&selected_image.full_path).ok();
                                     }
                                 }
 
