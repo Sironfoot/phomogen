@@ -240,7 +240,7 @@ where
                                     let image = if image.width() > 320 {
                                         let ratio = image.height() as f64 / image.width() as f64;
                                         let height = f64::round(320 as f64 * ratio) as u32;
-                                        image.resize(320, height, ratatui_image::FilterType::Nearest)
+                                        image.resize(320, height, ratatui_image::FilterType::Lanczos3)
                                     }
                                     else {
                                         image
@@ -470,7 +470,7 @@ where
                                             let image = if image.width() > 320 {
                                                 let ratio = image.height() as f64 / image.width() as f64;
                                                 let height = f64::round(320 as f64 * ratio) as u32;
-                                                image.resize(320, height, ratatui_image::FilterType::Nearest)
+                                                image.resize(320, height, ratatui_image::FilterType::Lanczos3)
                                             }
                                             else {
                                                 image
