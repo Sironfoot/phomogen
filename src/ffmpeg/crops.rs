@@ -101,30 +101,30 @@ impl CropSetting {
             // full frame
             Self::new(100.0, 0.0, 0.0, CropLevel::Essential, frame_width, frame_height, color_tiles_x, color_tiles_y), // full frame
 
-            // 50% crops
-            Self::new(50.0, 0.0, 0.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),   // top left
-            Self::new(50.0, 25.0, 0.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // top
-            Self::new(50.0, 50.0, 0.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // top right
+            // 80% crops
+            Self::new(80.0, 0.0, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),     // top left
+            Self::new(80.0, 10.0, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // top
+            Self::new(80.0, 20.0, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // top right
 
-            Self::new(50.0, 0.0, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // left
-            Self::new(50.0, 25.0, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // center
-            Self::new(50.0, 50.0, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // right
+            Self::new(80.0, 0.0, 10.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // left
+            Self::new(80.0, 10.0, 10.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // center
+            Self::new(80.0, 20.0, 10.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // right
 
-            Self::new(50.0, 0.0, 50.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // bottom left
-            Self::new(50.0, 25.0, 50.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom
-            Self::new(50.0, 50.0, 50.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom right
+            Self::new(80.0, 0.0, 20.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // bottom left
+            Self::new(80.0, 10.0, 20.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // bottom
+            Self::new(80.0, 20.0, 20.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // bottom right
 
-            // 50% inner crops
-            Self::new(50.0, 12.5, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top left
-            Self::new(50.0, 25.0, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top
-            Self::new(50.0, 37.5, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top right
+            // 80% inner crops
+            Self::new(80.0, 5.0, 5.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),     // inner top left
+            Self::new(80.0, 10.0, 5.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // inner top
+            Self::new(80.0, 15.0, 5.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // inner top right
 
-            Self::new(50.0, 12.5, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner left
-            Self::new(50.0, 37.5, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner left
+            Self::new(80.0, 5.0, 10.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // inner left
+            Self::new(80.0, 15.0, 10.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // inner right
 
-            Self::new(50.0, 12.5, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom left
-            Self::new(50.0, 25.0, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom
-            Self::new(50.0, 37.5, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom right
+            Self::new(80.0, 5.0, 15.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // inner bottom left
+            Self::new(80.0, 10.0, 15.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // inner bottom
+            Self::new(80.0, 15.0, 15.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // inner bottom right
 
             // 66.666% crops
             Self::new(66.666, 0.0, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),       // top left
@@ -150,31 +150,31 @@ impl CropSetting {
             Self::new(66.666, 8.333, 25.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),  // inner bottom left
             Self::new(66.666, 16.666, 25.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom
             Self::new(66.666, 25.666, 25.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom right
-        
-            // 75% crops
-            Self::new(75.0, 0.0, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),     // top left
-            Self::new(75.0, 12.5, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // top
-            Self::new(75.0, 25.0, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // top right
 
-            Self::new(75.0, 0.0, 12.5, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // left
-            Self::new(75.0, 12.5, 12.5, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // center
-            Self::new(75.0, 25.0, 12.5, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // right
+            // 50% crops
+            Self::new(50.0, 0.0, 0.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),   // top left
+            Self::new(50.0, 25.0, 0.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // top
+            Self::new(50.0, 50.0, 0.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // top right
 
-            Self::new(75.0, 0.0, 25.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // bottom left
-            Self::new(75.0, 12.5, 25.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // bottom
-            Self::new(75.0, 25.0, 25.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // bottom right
+            Self::new(50.0, 0.0, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // left
+            Self::new(50.0, 25.0, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // center
+            Self::new(50.0, 50.0, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // right
 
-            // 75% inner crops
-            Self::new(75.0, 6.25, 6.25, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // inner top left
-            Self::new(75.0, 12.5, 6.25, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // inner top
-            Self::new(75.0, 18.75, 6.25, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),  // inner top right
+            Self::new(50.0, 0.0, 50.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // bottom left
+            Self::new(50.0, 25.0, 50.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom
+            Self::new(50.0, 50.0, 50.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom right
 
-            Self::new(75.0, 6.25, 12.5, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // inner left
-            Self::new(75.0, 18.75, 12.5, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),  // inner right
+            // 50% inner crops
+            Self::new(50.0, 12.5, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top left
+            Self::new(50.0, 25.0, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top
+            Self::new(50.0, 37.5, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top right
 
-            Self::new(75.0, 6.25, 18.75, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),  // inner bottom left
-            Self::new(75.0, 12.5, 18.75, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),  // inner bottom
-            Self::new(75.0, 18.75, 18.75, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom right
+            Self::new(50.0, 12.5, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner left
+            Self::new(50.0, 37.5, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner left
+
+            Self::new(50.0, 12.5, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom left
+            Self::new(50.0, 25.0, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom
+            Self::new(50.0, 37.5, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom right
         ]
     }
 }
