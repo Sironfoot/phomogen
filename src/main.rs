@@ -4,20 +4,12 @@ pub mod ffmpeg;
 pub mod color_matcher;
 pub mod tile_blender;
 pub mod images;
+pub mod tasks;
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver};
-use std::thread::JoinHandle;
+use std::sync::mpsc::Receiver;
 use std::time::{Duration};
-use std::{cmp, io, thread};
-use std::io::BufRead;
-use std::fs::{self, File};
-
-use image::codecs::jpeg::JpegEncoder;
-use image::codecs::png::PngEncoder;
-use image::imageops::FilterType;
-use image::{GenericImage, GenericImageView, ImageBuffer, ImageEncoder, ImageFormat, ImageReader, Rgb, RgbImage, imageops};
+use std::io;
 
 use ratatui::{Terminal};
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -32,16 +24,24 @@ use ratatui::crossterm::terminal::{
 
 use anyhow::Result;
 
-use crate::app::{App, AppStage, ImageFile, ImageType, SystemInfo, VideoFile, VideoIndexCore, VideoIndexStatus, VideoIndexingReport};
-use crate::color_matcher::{ColorMatcher, FrameMatch, ImageTile};
-use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm, ColorExtractionProgress, ColorExtractor};
+use crate::app::{App, AppStage, ImageFile, SystemInfo, VideoIndexStatus, VideoIndexingReport};
+use crate::color_matcher::{FrameMatch, ImageTile};
+use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm};
 use crate::ffmpeg::crops::CropLevel;
-use crate::ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch};
-use crate::tile_blender::TileBlender;
 use crate::ui::render_ui;
-use crate::ffmpeg::VideoMetadata;
-use crate::app::frame_data::{Color, FrameCrop, FrameData, VideoColorIndexDatabase};
 use crate::images::PreviewImage;
+
+use crate::tasks::{
+    generate_database,
+    read_video_files,
+    read_image_files,
+    load_databases,
+    load_databases::LoadDatabaseProgressReport,
+    calculate_image_colors,
+    find_matches,
+    generate_mosaic,
+    generate_mosaic::MosaicGenerationReport
+};
 
 fn main() -> Result<()> {
     // TODO: replace with CLI args + better error handling
@@ -104,7 +104,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
 where
     io::Error: From<B::Error>
 {
-    let rc = read_video_files(&app);
+    let rc = read_video_files::run(&app);
     let mut images_receiver: Option<Receiver<Vec<ImageFile>>> = None;
     let mut color_extractor_receiver: Option<Receiver<VideoIndexingReport>> = None;
     let mut load_database_receiver: Option<Receiver<LoadDatabaseProgressReport>> = None;
@@ -142,7 +142,7 @@ where
 
                     match next_video {
                         Some(video) => {
-                            color_extractor_receiver = Some(generate_database(&video.metadata, &app))
+                            color_extractor_receiver = Some(generate_database::run(&video.metadata, &app))
                         },
                         None => {
                             app.stage = AppStage::LoadMosaicDatabase;
@@ -183,7 +183,7 @@ where
                     });
 
                     if requires_loading {
-                        load_database_receiver = Some(load_database(&app));
+                        load_database_receiver = Some(load_databases::run(&app));
                     }
                     else {
                         app.stage = AppStage::ImageSelect;
@@ -226,7 +226,7 @@ where
             },
             AppStage::ImageSelect => {
                 if images_receiver.is_none() {
-                    images_receiver = Some(read_image_files(&app));
+                    images_receiver = Some(read_image_files::run(&app));
                 }
 
                 if let Some(rc) = &images_receiver {
@@ -245,7 +245,7 @@ where
             },
             AppStage::ProcessImage => {
                 if calculate_image_colors_receiver.is_none() {
-                    calculate_image_colors_receiver = Some(calculate_image_colors(&app));
+                    calculate_image_colors_receiver = Some(calculate_image_colors::run(&app));
                 }
 
                 if let Some(rc) = &calculate_image_colors_receiver {
@@ -268,7 +268,7 @@ where
             AppStage::FindingMatches => {
                 if find_matches_receiver.is_none() {
                     app.reset_timer();
-                    find_matches_receiver = Some(find_matches(app));
+                    find_matches_receiver = Some(find_matches::run(app));
                 }
 
                 if let Some(rc) = &find_matches_receiver {
@@ -311,7 +311,7 @@ where
             },
             AppStage::GeneratingMosaic => {
                 if generate_mosaic_receiver.is_none() {
-                    generate_mosaic_receiver = Some(generate_mosaic(app).expect("Error"));
+                    generate_mosaic_receiver = Some(generate_mosaic::run(app).expect("Error"));
                 }
 
                 if let Some(rc) = &generate_mosaic_receiver {
@@ -492,844 +492,4 @@ where
     }
 
     Ok(())
-}
-
-fn generate_database(video: &VideoMetadata, app: &App) -> Receiver<VideoIndexingReport> {
-    let (video_progress_sender, video_progress_receiver) =
-        mpsc::channel::<VideoIndexingReport>();
-
-    let database_dir = app.database_dir.clone();
-
-    let max_allowed_cores = app.system_info.max_allowed_cores();
-
-    let color_tiles_x = app.color_tiles_x;
-    let color_tiles_y = app.color_tiles_y;
-
-    let video = video.clone();
-    let color_extracion_algorithm = app.color_extraction_algorithm.clone();
-
-    thread::spawn(move || {
-        // create the database folder
-        let database_dir_exists = fs::exists(&database_dir).unwrap_or(false);
-        if !database_dir_exists {
-            fs::create_dir(&database_dir).unwrap();
-        }
-
-        let mut report = VideoIndexingReport::new(&video.file_name, video.total_frames);
-        report.status = VideoIndexStatus::Initialising;
-
-        // number of FFMPEG workers is half number of CPU cores with
-        // each FFMPEG instance using 2 cores eeach
-        let num_workers = (max_allowed_cores as f64 / 1.0).floor() as usize;
-        let ffmpeg_threads: u32 = 1;
-
-        let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(num_workers);
-        let (tx, rc) = mpsc::channel::<ColorExtractionProgress>();
-
-        // 10 frames / 3 threads: 10 / 3 floored = 3
-        let frames_per_worker = f64::floor(video.total_frames as f64 / num_workers as f64) as u64;
-        // remainder on division 10 / 3 = 1
-        let remaining_frames = video.total_frames % num_workers as u64;
-    
-        for worker_index in 0..num_workers {
-            let is_last = worker_index == (num_workers - 1);
-
-            let starting_frame_index = worker_index as u64 * frames_per_worker;
-
-            //  10 frames / 3 threads, thread 1 = 1,2,3, thread 2 = 4,5,6, thread 3 = 6,7,8,10
-            let ending_frame_index = match is_last {
-                true => (starting_frame_index + frames_per_worker) + remaining_frames,
-                false => starting_frame_index + frames_per_worker
-            };
-
-            let total_frames_for_this_worker = match is_last {
-                true => frames_per_worker + remaining_frames,
-                false => frames_per_worker,
-            };
-
-            let temp_file_name = format!("{}_core-{worker_index}_temp.pmgd", video.file_name);
-            let temp_file_path = database_dir.join(temp_file_name);
-
-            let color_extracion_algorithm = color_extracion_algorithm.clone();
-            let video = video.clone();
-            let tx = tx.clone();
-
-            let mut worker_report = VideoIndexCore::new(
-                worker_index as u32,
-                total_frames_for_this_worker);
-            worker_report.status = VideoIndexStatus::Initialising;
-
-            report.cores.push(worker_report);
-
-            workers.push(thread::spawn(move || {
-                let mut extractor = ColorExtractor::init(
-                    worker_index as u32,
-                    video,
-                    starting_frame_index,
-                    ending_frame_index,
-                    color_tiles_x,
-                    color_tiles_y,
-                    temp_file_path.as_path()).unwrap();
-
-                extractor.set_algorithm(color_extracion_algorithm);
-                extractor.set_resize_width(1920);
-                extractor.set_max_threads(ffmpeg_threads);
-
-                extractor.run(tx).unwrap();
-            }));
-        }
-
-        drop(tx);
-
-        video_progress_sender.send(report.clone()).unwrap();
-
-        for extraction_progress in rc {
-            let mut inner_report = report;
-            inner_report.status = VideoIndexStatus::Running;
-
-            if let Some(core) = inner_report.cores.iter_mut()
-                .find(|c| c.instance_id == extraction_progress.instance_id) {
-                
-                core.frames_processed = extraction_progress.total_frames_processed;
-                core.average_fps = extraction_progress.average_fps;
-                core.memory_usage = extraction_progress.memory_usage;
-
-                let is_core_finished = core.total_frames == core.frames_processed;
-                core.status = if is_core_finished { VideoIndexStatus::Finished } else { VideoIndexStatus::Running };
-            }
-
-            let finished = inner_report.cores.iter()
-                .all(|c| c.status == VideoIndexStatus::Finished);
-
-            if finished {
-                inner_report.status = VideoIndexStatus::Finished;
-            }
-
-            video_progress_sender.send(inner_report.clone()).unwrap();
-
-            report = inner_report;
-        }
-
-        // wait for all FFMPEG instances to finish
-        for worker in workers {
-            worker.join().unwrap();
-        }
-
-        // join all the temp files together into something like:
-        // wk_dir/pmg_data/my_holiday.mp4-5x5.pmgd
-        let data_file_name = format!("{}-{}x{}.pmgd", video.file_name, color_tiles_x, color_tiles_y);
-        let full_data_file_path = database_dir.join(data_file_name);
-        let mut data_file = File::create(full_data_file_path).unwrap();
-
-        for worker_index in 0..num_workers {
-            let temp_file_name = format!("{}_core-{worker_index}_temp.pmgd", video.file_name);
-            let temp_file_path = database_dir.join(temp_file_name);
-            let mut temp_file = File::open(&temp_file_path).unwrap();
-
-            std::io::copy(&mut temp_file, &mut data_file).unwrap();
-            std::fs::remove_file(&temp_file_path).unwrap();
-        }
-    });
-
-    video_progress_receiver 
-}
-
-fn read_video_files(app: &App) -> Receiver<Vec<VideoFile>> {
-    let (tx, rc) = mpsc::channel::<Vec<VideoFile>>();
-    let working_dir = app.working_dir.clone();
-    let database_dir = app.database_dir.clone();
-
-    let color_tiles_x = app.color_tiles_x;
-    let color_tiles_y = app.color_tiles_y;
-
-    thread::spawn(move || {
-        const VIDEO_EXTENSIONS: &[&str] = &[
-            "mp4", "mkv", "mov", "avi", "webm", "m4v", "wmv", "flv",
-        ];
-
-        let mut video_files: Vec<String> = vec![];
-
-        let entries = fs::read_dir(&working_dir).unwrap();
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                let file_name = path.file_name().unwrap().display();
-                let ext = match path.extension() {
-                    Some(ext) => Some(ext.display().to_string()),
-                    None => None,
-                };
-                
-                if let Some(file_ext) = ext {
-                    let allowed = VIDEO_EXTENSIONS.iter()
-                        .any(|ext| ext.eq_ignore_ascii_case(&file_ext));
-
-                    if allowed {
-                        video_files.push(file_name.to_string());
-                    }
-                }
-            }
-        }
-
-        let mut videos: Vec<VideoFile> = Vec::with_capacity(video_files.len());
-
-        for video_file in video_files {
-            let full_path = working_dir.join(&video_file);
-            let meta_data = VideoMetadata::extract_from(&full_path);
-
-            let data_file = format!("{video_file}-{}x{}.pmgd", color_tiles_x, color_tiles_y);
-            let full_data_path = database_dir.join(&data_file);
-
-            let data_exists = fs::exists(&full_data_path).unwrap_or(false);
-
-            if let Ok(meta_data) = meta_data {
-                let mut video = VideoFile::new(meta_data);
-                video.database_path = if data_exists { Some(full_data_path) } else { None };
-
-                videos.push(video);
-            }
-        }
-
-        videos.sort_by_cached_key(|i| i.metadata.file_name.to_lowercase());
-
-        tx.send(videos).unwrap();
-    });
-
-    rc
-}
-
-fn read_image_files(app: &App) -> Receiver<Vec<ImageFile>> {
-    let (tx, rc) = mpsc::channel::<Vec<ImageFile>>();
-    let working_dir = app.working_dir.clone();
-
-    thread::spawn(move || {
-        const IMAGE_EXTENSIONS: &[&str] = &[
-            "jpg", "jpeg", "png", "webp", "bmp", "tiff"
-        ];
-
-        let mut image_files: Vec<String> = vec![];
-
-        let entries = fs::read_dir(&working_dir).unwrap();
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                let file_name = path.file_name().unwrap().display();
-                let ext = match path.extension() {
-                    Some(ext) => Some(ext.display().to_string()),
-                    None => None,
-                };
-                
-                if let Some(file_ext) = ext {
-                    let allowed = IMAGE_EXTENSIONS.iter()
-                        .any(|ext| ext.eq_ignore_ascii_case(&file_ext));
-
-                    if allowed {
-                        image_files.push(file_name.to_string());
-                    }
-                }
-            }
-        }
-
-        let mut images: Vec<ImageFile> = vec![];
-
-        for image_file in image_files {
-            let full_path = working_dir.join(image_file.clone());
-
-            let Ok(image) = ImageReader::open(full_path.clone()) else { continue; };
-            let Ok(image) = image.with_guessed_format() else { continue; };
-            let Some(image_format) = image.format() else { continue; };
-            let Ok((width, height)) = image.into_dimensions() else { continue; };
-
-            let format = match image_format {
-                ImageFormat::Bmp => ImageType::BMP,
-                ImageFormat::Jpeg => ImageType::JPEG,
-                ImageFormat::Png => ImageType::PNG,
-                ImageFormat::WebP => ImageType::WEBP,
-                ImageFormat::Tiff => ImageType::TIFF,
-                _ => { continue; }
-            };
-
-            images.push(ImageFile::new(
-                image_file.as_str(),
-                full_path.as_path(),
-                width,
-                height,
-                format,
-            ));
-            
-        }
-
-        images.sort_by_cached_key(|i| i.file_name.to_lowercase());
-
-        tx.send(images).unwrap();
-    });
-
-    rc
-}
-
-
-struct LoadDatabaseProgressReport {
-    video_file_name: String,
-    total_frames_processed: u32,
-    dropped_frames: u32,
-    database: Option<VideoColorIndexDatabase>,
-}
-
-fn load_database(app: &App) -> Receiver<LoadDatabaseProgressReport> {
-    let (tx, rc) = mpsc::channel::<LoadDatabaseProgressReport>();
-
-    const REPORT_PROGRESS_AFTER_FRAMES: u32 = 1234;
-
-    let color_tiles_x = app.color_tiles_x;
-    let color_tiles_y = app.color_tiles_y;
-    let total_colors = (color_tiles_x * color_tiles_y) as usize;
-
-    let videos_to_load = app.videos.iter()
-        .filter(|v| v.is_chosen && v.database.is_none() && v.database_path.is_some())
-        .collect::<Vec<_>>();
-
-    for video in videos_to_load {
-        let video_file_name = video.metadata.file_name.clone();
-        let total_frames = video.metadata.total_frames as u32;
-        let database_path = video.database_path.clone().unwrap();
-        let tx = tx.clone();
-
-        thread::spawn(move || {
-            let mut total_frames_added: u32 = 0;
-
-            let mut frames: HashMap<u32, FrameData> = HashMap::with_capacity(total_frames as usize);
-
-            let data_file = File::open(&database_path).unwrap();
-            let mut reader = io::BufReader::with_capacity(256 * 1024, data_file);
-
-            let mut dropped_frames: u32 = 0;
-
-            let max_line_length = 222;
-            let mut line = String::with_capacity(max_line_length);
-            
-            // e.g. 0 100 0 0 1 108,105,100 99,96,99 85,85,77....
-            loop {
-                line.clear();
-
-                match reader.read_line(&mut line) {
-                    Ok(0) => break,
-                    Ok(_) => {},
-                    Err(_) => break,
-                }
-
-                let mut parts = line.split_ascii_whitespace();
-
-                // since the database is a basic text file, we needto deal with the potential
-                // that it's been opened and tampered with
-
-                // get frame index
-                let Some(frame_index) = parts.next().and_then(|part| part.parse::<u32>().ok()) else {
-                    dropped_frames += 1;
-                    continue;
-                };
-
-                // check frame index is valid, can't be more than frames in the video
-                if (frame_index + 1) > total_frames {
-                    dropped_frames += 1;
-                    continue;
-                }
-
-                // get resize precentage
-                let Some(resize_percentage) = parts.next().and_then(|v| v.parse::<f32>().ok()) else {
-                    dropped_frames += 1;
-                    continue;
-                };
-
-                // should be in range 1 - 100
-                if resize_percentage < 1.0 || resize_percentage > 100.0 {
-                    dropped_frames += 1;
-                    continue;
-                }
-
-                // get pos X
-                let Some(pos_x_percentage) = parts.next().and_then(|v| v.parse::<f32>().ok()) else {
-                    dropped_frames += 1;
-                    continue;
-                };
-
-                if pos_x_percentage > 100.0 {
-                    dropped_frames += 1;
-                    continue;
-                }
-
-                // get pos Y
-                let Some(pos_y_percentage) = parts.next().and_then(|v| v.parse::<f32>().ok()) else {
-                    dropped_frames += 1;
-                    continue;
-                };
-
-                if pos_y_percentage > 100.0 {
-                    dropped_frames += 1;
-                    continue;
-                }
-
-                // get crop level
-                let Some(crop_level) = parts.next().and_then(|v| v.parse::<u8>().ok()) else {
-                    dropped_frames += 1;
-                    continue;
-                };
-
-                let Ok(crop_level) = CropLevel::try_from(crop_level) else {
-                    dropped_frames += 1;
-                    continue;
-                };
-
-                let mut colors: Vec<Color> = Vec::with_capacity(total_colors);
-
-                while let Some(color) = parts.next() {
-                    let mut rgb= color.split(',');
-
-                    let Some(r) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
-                        continue;
-                    };
-
-                    let Some(g) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
-                        continue;
-                    };
-
-                    let Some(b) = rgb.next().and_then(|c| c.parse::<u8>().ok()) else {
-                        continue;
-                    };
-
-                    colors.push(Color { r, g, b });
-                }
-
-                // number of colors should match number of tiles
-                if colors.len() != total_colors {
-                    dropped_frames += 1;
-                    continue;
-                }
-
-                let mut crop = FrameCrop::init(
-                    color_tiles_x as u8,
-                    resize_percentage,
-                    pos_x_percentage,
-                    pos_y_percentage,
-                    crop_level);
-
-                crop.colors = colors;
-
-                let mut new_frame_added = false;
-
-                let frame_data = frames
-                    .entry(frame_index)
-                    .or_insert_with(|| {
-                        new_frame_added = true;
-                        FrameData::new(frame_index)
-                    });
-
-                if new_frame_added {
-                    total_frames_added += 1;
-                }
-
-                frame_data.crops.push(crop);
-
-                if new_frame_added && total_frames_added % REPORT_PROGRESS_AFTER_FRAMES == 0 {
-                    tx.send(LoadDatabaseProgressReport {
-                        video_file_name: video_file_name.clone(),
-                        total_frames_processed: total_frames_added,
-                        dropped_frames,
-                        database: None,
-                    }).unwrap();
-                }
-            }
-
-            if dropped_frames > 0 {
-                panic!("DROPPED FRAMES DETECTED!!");
-            }
-
-            let color_database = VideoColorIndexDatabase::new(
-                color_tiles_x, color_tiles_y, frames.into_values().collect());
-
-            tx.send(LoadDatabaseProgressReport {
-                video_file_name: video_file_name,
-                total_frames_processed: total_frames_added,
-                dropped_frames,
-                database: Some(color_database),
-            }).unwrap();
-        });
-    }
-
-    drop(tx);
-
-    rc
-}
-
-
-fn calculate_image_colors(app: &App) -> Receiver<Vec<ImageTile>> {
-    let (tx, rc) = mpsc::channel::<Vec<ImageTile>>();
-
-    let image = app.images.iter().find(|i| i.is_chosen)
-        .expect("No image is chosen");
-    let image_path = image.full_path.clone();
-
-    let color_tiles_x = app.color_tiles_x;
-    let color_tiles_y = app.color_tiles_y;
-
-    let mosaic_tiles_x = app.mosaic_tiles_x;
-    let mosaic_tiles_y = app.mosaic_tiles_y;
-
-    thread::spawn(move || {
-        let total_tiles = mosaic_tiles_x * mosaic_tiles_y;
-        let mut image_tiles: Vec<ImageTile> = Vec::with_capacity(total_tiles as usize);
-
-        let image_file = image::open(image_path).unwrap();
-        let image_data = image_file.to_rgb8();
-
-        const LARGEST_DIMENSION: u32 = 10000;
-        let (image_width, image_height) = image_file.dimensions();
-
-        let is_landscape = image_width > image_height;
-        let ratio = image_width as f64 / image_height as f64;
-
-        let smallest_dimension = if is_landscape {
-            (LARGEST_DIMENSION as f64 / ratio).round() as u32
-        }
-        else
-        {
-            (LARGEST_DIMENSION as f64 * ratio).round() as u32
-        };
-
-        let target_width: u32 = if is_landscape { LARGEST_DIMENSION } else { smallest_dimension };
-        let target_height: u32 = if is_landscape { smallest_dimension } else { LARGEST_DIMENSION };
-
-        let mosaic_tile_width = f64::round(target_width as f64 / mosaic_tiles_x as f64) as u32;
-        let mosaic_tile_height = f64::round(target_height as f64 / mosaic_tiles_y as f64) as u32;
-
-        let resize_width = mosaic_tile_width * mosaic_tiles_x;
-        let resize_height = mosaic_tile_height * mosaic_tiles_y;
-
-        let image_data = imageops::resize(
-            &image_data, resize_width, resize_height, FilterType::CatmullRom);
-
-        let color_tile_width = f64::round(mosaic_tile_width as f64 / color_tiles_x as f64) as u32;
-        let color_tile_height = f64::round(mosaic_tile_height as f64 / color_tiles_y as f64) as u32;
-
-        let total_sub_tile_pixels = color_tile_width * color_tile_height;
-
-        for tile_y in 0..mosaic_tiles_y {
-            for tile_x in 0..mosaic_tiles_x {
-                let start_x = tile_x * mosaic_tile_width;
-                let start_y = tile_y * mosaic_tile_height;
-
-                let sub_image = image_data.view(start_x, start_y, mosaic_tile_width, mosaic_tile_height);
-
-                let mut tile_data = ImageTile {
-                    colors: vec![]
-                };
-                
-                for sub_tile_y in 0..color_tiles_y {
-                    for sub_tile_x in 0..color_tiles_x {
-                        let start_x = sub_tile_x * color_tile_width;
-                        let end_x = cmp::min(start_x + color_tile_width, mosaic_tile_width);
-
-                        let start_y = sub_tile_y * color_tile_height;
-                        let end_y = cmp::min(start_y + color_tile_height, mosaic_tile_height);
-
-                        let mut total_red: u64 = 0;
-                        let mut total_green: u64 = 0;
-                        let mut total_blue: u64 = 0;
-
-                        for pixel_y in start_y..end_y {
-                            for pixel_x in start_x..end_x {
-                                let pixel = sub_image.get_pixel(pixel_x, pixel_y);
-                                let [red, green, blue] = pixel.0;
-
-                                total_red += red as u64;
-                                total_green += green as u64;
-                                total_blue += blue as u64;
-                            }
-                        }
-
-                        let average_red = f64::round(total_red as f64 / total_sub_tile_pixels as f64) as u64;
-                        let average_green = f64::round(total_green as f64 / total_sub_tile_pixels as f64) as u64;
-                        let average_blue = f64::round(total_blue as f64 / total_sub_tile_pixels as f64) as u64;
-
-                        tile_data.colors.push(Color {
-                            r: average_red as u8,
-                            g: average_green as u8,
-                            b: average_blue as u8,
-                        });
-                    }
-                }
-
-                image_tiles.push(tile_data);
-            }
-        }
-
-        tx.send(image_tiles).unwrap();
-    });
-
-    rc
-}
-
-fn find_matches(app: &mut App) -> Receiver<FrameMatch> {
-    let chosen_image = app.images.iter()
-        .find(|i| i.is_chosen && i.image_tiles.is_some());
-
-    if let Some(chosen_image) = chosen_image {
-        let mut matcher = ColorMatcher::new(app.mosaic_tiles_x, app.mosaic_tiles_y, app.allowed_crops());
-
-        matcher.set_thread_count(app.system_info.max_allowed_cores());
-
-        let videos = app.videos.iter()
-            .filter(|v| v.is_chosen && v.database.is_some());
-
-        for video in videos {
-            if let Some(database) = &video.database {
-                matcher.add_database(&video.metadata.file_name, database);
-            }
-        }
-
-        return matcher.match_tiles(chosen_image).unwrap();
-    }
-
-    panic!("No image");
-}
-
-struct MosaicGenerationReport {
-    tile_index: u32,
-    row: u32,
-    col: u32,
-}
-
-fn generate_mosaic(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
-    let (progress_sender, progress_receiver) = mpsc::channel::<MosaicGenerationReport>();
-
-    let image_result = app.images.iter()
-        .find(|i| i.is_chosen);
-
-    let Some(chosen_image) = image_result else {
-        return Err(anyhow::format_err!("No chosen image found"));
-    };
-
-    let Some(frame_matches) = &chosen_image.matched_tiles else {
-        return Err(anyhow::format_err!("Image has no matched tiles"));
-    };
-
-    // copy what we need
-    let image_filename = chosen_image.file_name.clone();
-
-    let mosaic_tiles_x = app.mosaic_tiles_x;
-    let mosaic_tiles_y = app.mosaic_tiles_y;
-
-    let max_allowed_cores = app.system_info.max_allowed_cores();
-
-    let frame_matches = frame_matches.clone();
-    let mut video_filenames = frame_matches.iter()
-        .map(|f| f.video_filename.clone())
-        .collect::<Vec<_>>();
-
-    video_filenames.dedup();
-
-    let videos = app.videos.iter()
-        .filter(|v| video_filenames.contains(&v.metadata.file_name))
-        .map(|v| v.metadata.clone())
-        .collect::<Vec<_>>();
-
-    let mosaics_dir = app.mosaics_dir.clone();
-    let database_dir = app.database_dir.clone();
-    let srgb_profile = app.get_srgb_profile();
-
-    thread::spawn(move || {
-        // create the database folder
-        let database_dir_exists = fs::exists(&database_dir).unwrap_or(false);
-        if !database_dir_exists {
-            fs::create_dir(&database_dir).unwrap();
-        }
-
-        // create the temporary mosaic directory
-        let temp_mosaic_dir_name = format!("{image_filename}_temp");
-        let temp_mosaic_dir = database_dir.join(&temp_mosaic_dir_name);
-
-        let temp_mosaic_exists = fs::exists(&temp_mosaic_dir).unwrap_or(false);
-        if !temp_mosaic_exists {
-            fs::create_dir(&temp_mosaic_dir).unwrap();
-        }
-
-        let mut video_frame_matches: HashMap<&str, Vec<VideoFrameMatch>> = HashMap::new();
-
-        // group into videos
-        for frame_match in &frame_matches {
-            let entry = video_frame_matches
-                .entry(frame_match.video_filename.as_str())
-                .or_insert_with(|| Vec::new());
-
-            entry.push(VideoFrameMatch {
-                tile_index: frame_match.tile_index,
-                frame_index: frame_match.frame_index,
-                crop_resize: frame_match.crop_resize,
-                crop_pos_x: frame_match.crop_pos_x,
-                crop_pos_y: frame_match.crop_pos_y,
-                is_flipped: frame_match.is_flipped,
-            });
-        }
-
-        let num_workers = max_allowed_cores / 1;
-
-        for (video_filname, video_frame_matches) in video_frame_matches {
-            if let Some(video) = videos.iter().find(|v| v.file_name == video_filname) {
-                let total_matches = video_frame_matches.len() as u32;
-                // ensure total threads aren't more than total matches
-                let num_workers = num_workers.min(total_matches);
-            
-                let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(num_workers as usize);
-                let (tx, rc) = mpsc::channel::<ImageTileData>();
-
-                // 10 matches / 3 threads: 10 / 3 floored = 3
-                let matches_per_worker = f64::floor(total_matches as f64 / num_workers as f64) as u32;
-                // remainder on division 10 / 3 = 1
-                let remainder_matches = total_matches as u32 % num_workers as u32;
-
-                for worker_index in 0..num_workers {
-                    let is_last = worker_index == (num_workers - 1);
-
-                    let starting_match_index = worker_index as u32 * matches_per_worker;
-
-                    //  10 matches / 3 threads, thread 1 = 1,2,3, thread 2 = 4,5,6, thread 3 = 6,7,8,10
-                    let ending_match_index = match is_last {
-                        true => (starting_match_index + matches_per_worker) + remainder_matches,
-                        false => starting_match_index + matches_per_worker
-                    };
-
-                    let workers_matches = video_frame_matches[
-                        starting_match_index as usize..ending_match_index as usize].to_vec().clone();
-
-                    let video_metadata = video.clone();
-                    let tx = tx.clone();
-                    
-                    workers.push(thread::spawn(move || {
-                        let mut frame_extractor = FrameExtractor::new(worker_index, video_metadata);
-                        frame_extractor.run(&workers_matches, tx).unwrap();
-                    }));
-                }
-
-                drop(tx);
-
-                for tile in rc {
-                    let row = tile.tile_index / mosaic_tiles_x;
-                    let col = tile.tile_index % mosaic_tiles_x;
-
-                    let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-
-                    // TODO: don't hard code dimensions
-                    let resized = imageops::resize(&tile.data, 960, 540, FilterType::Triangle);
-                    resized.save(tile_path).unwrap();
-
-                    progress_sender.send(MosaicGenerationReport {
-                        tile_index: tile.tile_index,
-                        row,
-                        col,
-                    }).unwrap();
-                }
-
-                for worker in workers {
-                    worker.join().unwrap();
-                }
-            }
-        }
-
-        // join images
-        let image_width: u32 = 7680;
-        let image_height: u32 = 4320;
-
-        let ratio = image_width as f64 / image_height as f64;
-
-        const LARGEST_DIMENSION: u32 = 10000;
-        let smallest_dimension = (LARGEST_DIMENSION as f64 / ratio).round() as u32;
-
-        let is_landscape = image_width > image_height;
-
-        let target_width = if is_landscape { LARGEST_DIMENSION } else { smallest_dimension };
-
-        let tile_width = (target_width as f64 / mosaic_tiles_x as f64).round() as u32;
-        let tile_height = (tile_width as f64 / ratio as f64).round() as u32;
-
-        let final_width = tile_width * mosaic_tiles_x;
-        let final_height = tile_height * mosaic_tiles_y;
-        
-        let mut canvas: ImageBuffer<Rgb<u8>, Vec<u8>> = RgbImage::new(final_width, final_height);
-
-        for frame_match in frame_matches {
-            let row = frame_match.tile_index / mosaic_tiles_x;
-            let col = frame_match.tile_index % mosaic_tiles_x;
-
-            let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-            let tile_image = image::open(tile_path).unwrap();
-            let mut image = tile_image.into_rgb8();
-
-            let tile_blender = TileBlender::new(row, col, mosaic_tiles_x, mosaic_tiles_y);
-
-            let top_image = tile_blender.find_top().map(|(row, col)| {
-                let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-                image::open(tile_path).unwrap().into_rgb8()
-            });
-
-            let right_image = tile_blender.find_right().map(|(row, col)| {
-                let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-                image::open(tile_path).unwrap().into_rgb8()
-            });
-
-            let bottom_image = tile_blender.find_bottom().map(|(row, col)| {
-                let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-                image::open(tile_path).unwrap().into_rgb8()
-            });
-
-            let left_image = tile_blender.find_left().map(|(row, col)| {
-                let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-                image::open(tile_path).unwrap().into_rgb8()
-            });
-
-            tile_blender.blend_image(&mut image, top_image.as_ref(), right_image.as_ref(), bottom_image.as_ref(), left_image.as_ref()).unwrap();
-
-            let resized = imageops::resize(
-                &image, tile_width, tile_height, FilterType::Triangle);
-
-            canvas.copy_from(&resized, col * tile_width, row * tile_height).unwrap();
-        }
-
-        // create print quality version
-        let mosaic_image_name = format!("{image_filename}_{mosaic_tiles_x}x{mosaic_tiles_y}.png");
-        let image_path = mosaics_dir.join(&mosaic_image_name);
-
-        let file_write = fs::File::create_new(&image_path).unwrap();
-
-        let mut encoder = PngEncoder::new(file_write);
-        encoder.set_icc_profile(srgb_profile.clone()).unwrap();
-        encoder.write_image(
-            canvas.as_raw(),
-            canvas.width(),
-            canvas.height(),
-            image::ExtendedColorType::Rgb8
-        ).unwrap();
-
-        // create smaller version
-        let mosaic_image_name = format!("{image_filename}_{mosaic_tiles_x}x{mosaic_tiles_y}.jpeg");
-        let image_path = mosaics_dir.join(&mosaic_image_name);
-
-        let file_write = fs::File::create_new(&image_path).unwrap();
-        let mut encoder = JpegEncoder::new_with_quality(file_write, 99);
-        encoder.set_icc_profile(srgb_profile).unwrap();
-
-        let jpeg_width: u32 = 7680;
-        let jpeg_height: u32 = 4320;
-
-        let jpeg_canvas = imageops::resize(&canvas, jpeg_width, jpeg_height, FilterType::Lanczos3);
-        encoder.write_image(
-            jpeg_canvas.as_raw(),
-            jpeg_canvas.width(),
-            jpeg_canvas.height(),
-            image::ExtendedColorType::Rgb8
-        ).unwrap();
-
-        fs::remove_dir_all(&temp_mosaic_dir).unwrap();
-    });
-
-    Ok(progress_receiver)
 }
