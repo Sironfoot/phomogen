@@ -32,8 +32,8 @@ use ratatui::crossterm::terminal::{
 
 use anyhow::Result;
 
-use crate::app::{App, AppStage, ImageFile, ImageTile, ImageType, SystemInfo, VideoFile, VideoIndexCore, VideoIndexStatus, VideoIndexingReport};
-use crate::color_matcher::{ColorMatcher, FrameMatch};
+use crate::app::{App, AppStage, ImageFile, ImageType, SystemInfo, VideoFile, VideoIndexCore, VideoIndexStatus, VideoIndexingReport};
+use crate::color_matcher::{ColorMatcher, FrameMatch, ImageTile};
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm, ColorExtractionProgress, ColorExtractor};
 use crate::ffmpeg::crops::CropLevel;
 use crate::ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch};

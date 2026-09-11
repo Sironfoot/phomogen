@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::{Arc, mpsc::{self, Receiver}}, thread::{se
 
 use anyhow::Result;
 
-use crate::{app::{ImageFile, ImageTile, frame_data::{Color, VideoColorIndexDatabase}}, ffmpeg::crops::CropLevel};
+use crate::{app::{ImageFile, frame_data::{Color, VideoColorIndexDatabase}}, ffmpeg::crops::CropLevel};
 
 pub struct ColorMatcher {
     pub red_bias: u64,
@@ -194,4 +194,9 @@ pub struct FrameMatch {
     pub crop_pos_x: f32,
     pub crop_pos_y: f32,
     pub is_flipped: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImageTile {
+    pub colors: Vec<Color>,
 }
