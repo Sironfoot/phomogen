@@ -52,6 +52,7 @@ pub struct TileCandidate {
     pub cropped_height: u32,
     pub ideal_print_size: PrintSizes,
 }
+
 pub fn narrow_down_candidates(candidates: &[TileCandidate], image_width: u32, image_height: u32, tile_shape: &TileShape) -> Vec<TileCandidate> {
     const MAX_CANDIDATES: usize = 20;
 

@@ -15,7 +15,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .padding(Padding::uniform(1))
-        .title("  Select Videos (Generating Database)  ")
+        .title("  Videos (Generating Database)  ")
         .style(Style::default());
 
     let inner = block.inner(main);

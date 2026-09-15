@@ -34,7 +34,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .padding(Padding::uniform(1))
-        .title("  Select Videos > Select Image  ")
+        .title("  Videos > Select Image  ")
         .style(Style::default());
 
     let inner = block.inner(main);
@@ -46,16 +46,16 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         header_section,
         list_section,
         instructions_section,
-        image_preview_section,
         continue_section,
+        image_preview_section,
     ] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
             Constraint::Length(list_item_height as u16),
-            Constraint::Length(2),
-            Constraint::Min(0),
+            Constraint::Length(1),
             Constraint::Length(3),
+            Constraint::Min(0),
         ])
         .spacing(1)
         .areas(inner);
@@ -102,6 +102,18 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
 
     frame.render_widget(instructions, instructions_section);
 
+    // continue message
+    let at_least_one_selected = app.videos.iter().any(|v| v.is_chosen);
+    let cont_color = if at_least_one_selected { Color::White } else { Color::DarkGray };
+
+    let continue_instructions =  Paragraph::new(
+        Text::styled("Press (Enter) to continue.\nPress (Backspace) to go back.", Style::default().fg(cont_color))
+    )
+    .wrap(Wrap::default())
+    .alignment(HorizontalAlignment::Center);
+
+    frame.render_widget(continue_instructions, continue_section);
+
     // image preview
     if let Some(selected_image) = app.images.iter().find(|i| i.is_chosen) {
         if let Some(image) = &selected_image.preview {
@@ -146,16 +158,4 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
             frame.render_widget(image_widget, image_area);
         }
     }
-
-    // continue message
-    let at_least_one_selected = app.videos.iter().any(|v| v.is_chosen);
-    let cont_color = if at_least_one_selected { Color::White } else { Color::DarkGray };
-
-    let continue_instructions =  Paragraph::new(
-        Text::styled("Press (Enter) to continue.\n\nPress (Backspace) to go back.", Style::default().fg(cont_color))
-    )
-    .wrap(Wrap::default())
-    .alignment(HorizontalAlignment::Center);
-
-    frame.render_widget(continue_instructions, continue_section);
 }

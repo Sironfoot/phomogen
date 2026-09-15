@@ -1,15 +1,21 @@
 mod app_stage;
 pub mod frame_data;
 mod image_file;
+mod mosaic_tiling_option;
+mod print_sizes;
 mod system_info;
 mod terminal_theme;
+mod tile_shape;
 mod video_file;
 mod video_indexing_report;
 
 pub use app_stage::AppStage;
 pub use image_file::{ImageFile, ImageType};
+pub use mosaic_tiling_option::MosaicTilingOption;
+pub use print_sizes::PrintSize;
 pub use system_info::SystemInfo;
 pub use terminal_theme::{TerminalTheme, TerminalThemeMode};
+pub use tile_shape::TileShape;
 pub use video_file::VideoFile;
 pub use video_indexing_report::{VideoIndexCore, VideoIndexingReport, VideoIndexStatus};
 
@@ -33,6 +39,9 @@ pub struct App {
 
     pub color_tiles_x: u32,
     pub color_tiles_y: u32,
+
+    pub supported_tile_shapes: Vec<TileShape>,
+    pub selected_tile_shape: TileShape,
 
     pub mosaic_tiles_x: u32,
     pub mosaic_tiles_y: u32,
@@ -91,6 +100,8 @@ impl App {
             mosaics_dir: mosaics_dir,
             color_tiles_x: DEFAULT_COLOR_TILES,
             color_tiles_y: DEFAULT_COLOR_TILES,
+            supported_tile_shapes: vec![TileShape::Landscape16x9],
+            selected_tile_shape: TileShape::Landscape16x9,
             mosaic_tiles_x: 40,
             mosaic_tiles_y: 40,
             current_video_index: 0,

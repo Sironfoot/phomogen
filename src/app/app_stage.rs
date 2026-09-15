@@ -6,6 +6,7 @@ pub enum AppStage {
     GenerateMosaicDatabase,
     LoadMosaicDatabase,
     ImageSelect,
+    SelectMosaicOptions,
     ProcessImage,
     FindingMatches,
     GeneratingMosaic,

@@ -24,7 +24,7 @@ use ratatui::crossterm::terminal::{
 
 use anyhow::Result;
 
-use crate::app::{App, AppStage, ImageFile, SystemInfo, VideoIndexStatus, VideoIndexingReport};
+use crate::app::{App, AppStage, ImageFile, SystemInfo, TileShape, VideoIndexStatus, VideoIndexingReport};
 use crate::color_matcher::{FrameMatch, ImageTile};
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm};
 use crate::ffmpeg::crops::CropLevel;
@@ -124,11 +124,6 @@ where
             AppStage::Initial => {
                 if let Ok(videos) = rc.try_recv() {
                     app.videos = videos;
-
-                    if app.videos.len() > 0 {
-                        app.videos[0].is_chosen = true;
-                    }
-
                     app.stage = AppStage::VideoSelect;
                     should_render = true;
                 }
@@ -474,7 +469,7 @@ where
                             },
                             KeyCode::Enter => {
                                 if app.images.iter().any(|i| i.is_chosen) {
-                                    app.stage = AppStage::ProcessImage;
+                                    app.stage = AppStage::SelectMosaicOptions;
                                 }
                                 should_render = true;
                             },
@@ -483,6 +478,55 @@ where
                                 should_render = true;
                             },
                             _ => {}
+                        }
+                    },
+                    AppStage::SelectMosaicOptions => {
+                        if let Some(image) =  app.images.iter_mut().find(|i| i.is_chosen)
+                            && let Some(tiling_options) = image.tiling_options.get_mut(&TileShape::Landscape16x9) {
+
+                            match key.code {
+                                KeyCode::Up => {
+                                    let mut index = image.selected_tiling_option_index;
+
+                                    if index == 0 {
+                                        index = tiling_options.len() - 1;
+                                    }
+                                    else {
+                                        index -= 1;
+                                    }
+
+                                    image.selected_tiling_option_index = index;
+                                    should_render = true;
+                                },
+                                KeyCode::Down => {
+                                    let mut index = image.selected_tiling_option_index;
+
+                                    if index == tiling_options.len() - 1 {
+                                        index = 0;
+                                    }
+                                    else {
+                                        index += 1;
+                                    }
+
+                                    image.selected_tiling_option_index = index;
+                                    should_render = true;
+                                },
+                                KeyCode::Char(' ') => {
+                                    let index = image.selected_tiling_option_index;
+                                    if let Some(tiling_option) = tiling_options.get_mut(index) {
+                                        tiling_option.is_chosen = !tiling_option.is_chosen;
+                                    }
+                                    should_render = true;
+                                },
+                                KeyCode::Enter => {
+
+                                },
+                                KeyCode::Backspace => {
+                                    app.stage = AppStage::ImageSelect;
+                                    should_render = true;
+                                },
+                                _ => {}
+                            }
                         }
                     },
                     _ => {}
