@@ -196,7 +196,7 @@ pub struct FrameMatch {
     pub is_flipped: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ImageTile {
     pub colors: Vec<Color>,
 }

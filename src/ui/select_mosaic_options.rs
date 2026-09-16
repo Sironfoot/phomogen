@@ -9,7 +9,7 @@ use ratatui::{
 };
 use ratatui_image::{FilterType, Image, Resize, picker::Picker};
 
-use crate::app::App;
+use crate::app::{App, AppStage};
 
 const MAX_IMAGE_HEIGHT: u16 = 30;
 
@@ -17,7 +17,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title("  Videos > Image > Mosaic Options  ")
+        .title("  Image > Mosaic Options  ")
         .padding(Padding::uniform(1))
         .style(Style::default());
 
@@ -154,12 +154,14 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
     let tile_heading = "Tile Layout";
     let print_heading = "Suitable Paper Size";
     let dimensions_heading = "Print Dimensions";
+    let db_heading = "DB";
 
     let header = Row::new([
         Cell::from(select_heading),
         Cell::from(Text::from(tile_heading).left_aligned()),
         Cell::from(Text::from(print_heading).left_aligned()),
         Cell::from(Text::from(dimensions_heading).left_aligned()),
+        Cell::from(Text::from(db_heading).right_aligned()),
     ])
     .style(Style::default().bold())
     .bottom_margin(options_table_header_margin);
@@ -190,11 +192,14 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
             
             let dimensions = format!("{cm_width:>5.1} x {cm_height} cm");
 
+            let db_loaded = if mt.image_tiles.is_some() { "✔" } else { "" };
+
             Row::new([
                 Cell::from(marker),
                 Cell::from(tile),
                 Cell::from(print),
                 Cell::from(dimensions),
+                Cell::from(Text::from(db_loaded).right_aligned()),
             ]).style(style)
         });
 
@@ -203,6 +208,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
         Constraint::Min(1),
         Constraint::Min(1),
         Constraint::Min(1),
+        Constraint::Length(4),
     ];
 
     let table = Table::new(rows, column_widths)
@@ -218,18 +224,27 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
     frame.render_stateful_widget(table, tabs_inner, &mut table_state);
 
     // continue instructions
-    let can_continue = tiling_options.iter().any(|t| t.is_chosen);
+    if app.stage == AppStage::SelectMosaicOptions {
+        let can_continue = tiling_options.iter().any(|t| t.is_chosen);
 
-    let mut continue_line = Line::from("Press (Enter) to continue.");
-    if !can_continue {
-        continue_line = continue_line.style(Modifier::DIM);
+        let mut continue_line = Line::from("Press (Enter) to continue.");
+        if !can_continue {
+            continue_line = continue_line.style(Modifier::DIM);
+        }
+
+        let backspace_line = Line::from("Press (Backspace) to go back.");
+
+        let continue_instructions =  Paragraph::new(vec![continue_line, backspace_line])
+            .wrap(Wrap::default())
+            .alignment(HorizontalAlignment::Center);
+
+        frame.render_widget(continue_instructions, continue_section);
     }
+    else {
+        let processing_message =  Paragraph::new("Processing image colors. Please wait...")
+            .wrap(Wrap::default())
+            .alignment(HorizontalAlignment::Center);
 
-    let backspace_line = Line::from("Press (Backspace) to go back.");
-
-    let continue_instructions =  Paragraph::new(vec![continue_line, backspace_line])
-        .wrap(Wrap::default())
-        .alignment(HorizontalAlignment::Center);
-
-    frame.render_widget(continue_instructions, continue_section);
+        frame.render_widget(processing_message, continue_section);
+    }
 }

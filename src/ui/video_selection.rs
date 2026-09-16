@@ -25,7 +25,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .padding(Padding::uniform(1))
-        .title("  Select Videos  ")
+        .title("  Image > Options > Select Videos  ")
         .style(Style::default());
 
     let inner = block.inner(main);

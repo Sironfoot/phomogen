@@ -34,7 +34,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .padding(Padding::uniform(1))
-        .title("  Videos > Select Image  ")
+        .title("  Select Image  ")
         .style(Style::default());
 
     let inner = block.inner(main);
@@ -54,7 +54,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
             Constraint::Length(1),
             Constraint::Length(list_item_height as u16),
             Constraint::Length(1),
-            Constraint::Length(3),
+            Constraint::Length(1),
             Constraint::Min(0),
         ])
         .spacing(1)
@@ -103,14 +103,9 @@ pub fn render(frame: &mut Frame, main: Rect, app: &App) {
     frame.render_widget(instructions, instructions_section);
 
     // continue message
-    let at_least_one_selected = app.videos.iter().any(|v| v.is_chosen);
-    let cont_color = if at_least_one_selected { Color::White } else { Color::DarkGray };
-
-    let continue_instructions =  Paragraph::new(
-        Text::styled("Press (Enter) to continue.\nPress (Backspace) to go back.", Style::default().fg(cont_color))
-    )
-    .wrap(Wrap::default())
-    .alignment(HorizontalAlignment::Center);
+    let continue_instructions =  Paragraph::new("Press (Enter) to continue.")
+        .wrap(Wrap::default())
+        .alignment(HorizontalAlignment::Center);
 
     frame.render_widget(continue_instructions, continue_section);
 

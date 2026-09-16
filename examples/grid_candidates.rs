@@ -3,8 +3,8 @@ use std::{fmt::Display, time::Instant};
 const MAX_TILES_PER_AXIS: u8 = 80;
 
 fn main() {
-    let width: u32 = 5000;
-    let height: u32 = 5000;
+    let width: u32 = 2500;
+    let height: u32 = 2268;
     let tile_shape = TileShape::Landscape16x9;
     const MAX_CROP_PERCENTAGE: f64 = 0.9;
 

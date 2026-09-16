@@ -14,7 +14,7 @@ pub fn render(frame: &mut Frame, main: Rect) {
         .style(Style::default());
 
     let text = Paragraph::new(
-        Text::styled("Loading videos files. Please wait...", Style::default().bg(Color::Red))
+        Text::styled("Loading. Please wait...", Style::default().bg(Color::Red))
     )
     .alignment(ratatui::layout::HorizontalAlignment::Center)
     .block(main_block.clone());

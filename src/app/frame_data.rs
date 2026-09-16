@@ -72,7 +72,7 @@ impl FrameCrop {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Color {
     pub r: u8,
     pub g: u8,

@@ -25,7 +25,7 @@ use ratatui::crossterm::terminal::{
 use anyhow::Result;
 
 use crate::app::{App, AppStage, ImageFile, SystemInfo, TileShape, VideoIndexStatus, VideoIndexingReport};
-use crate::color_matcher::{FrameMatch, ImageTile};
+use crate::color_matcher::{FrameMatch};
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm};
 use crate::ffmpeg::crops::CropLevel;
 use crate::ui::render_ui;
@@ -104,11 +104,11 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
 where
     io::Error: From<B::Error>
 {
-    let rc = read_video_files::run(&app);
     let mut images_receiver: Option<Receiver<Vec<ImageFile>>> = None;
+    let mut calculate_image_colors_receiver: Option<Receiver<calculate_image_colors::Response>> = None;
+    let mut videos_receiver: Option<Receiver<Vec<app::VideoFile>>> = None;
     let mut color_extractor_receiver: Option<Receiver<VideoIndexingReport>> = None;
     let mut load_database_receiver: Option<Receiver<LoadDatabaseProgressReport>> = None;
-    let mut calculate_image_colors_receiver: Option<Receiver<Vec<ImageTile>>> = None;
     let mut find_matches_receiver: Option<Receiver<FrameMatch>> = None;
     let mut generate_mosaic_receiver: Option<Receiver<MosaicGenerationReport>> = None;
 
@@ -122,14 +122,90 @@ where
 
         match app.stage {
             AppStage::Initial => {
-                if let Ok(videos) = rc.try_recv() {
-                    app.videos = videos;
-                    app.stage = AppStage::VideoSelect;
-                    should_render = true;
+                if images_receiver.is_none() {
+                    images_receiver = Some(read_image_files::run(&app));
+                }
+
+                if let Some(rc) = &images_receiver {
+                    if let Ok(images) = rc.try_recv() {
+                        app.images = images;
+
+                        if app.images.len() > 0 {
+                            if let Some(selected_image) = app.images.get_mut(0) {
+                                selected_image.is_chosen = true;
+                                selected_image.preview = PreviewImage::new(&selected_image.full_path).ok();
+                            }
+                        }
+
+                        app.stage = AppStage::ImageSelect;
+                        should_render = true;
+                    }
+                }
+            },
+            AppStage::ImageSelect => {
+               
+            },
+            AppStage::SelectMosaicOptions => {
+
+            },
+            AppStage::ProcessImage => {
+                if calculate_image_colors_receiver.is_none() {
+                    calculate_image_colors_receiver = Some(calculate_image_colors::run(&app));
+                }
+
+                if let Some(rc) = &calculate_image_colors_receiver {
+                    let responses: Vec<calculate_image_colors::Response> = rc.try_iter().collect();
+
+                    if responses.len() > 0 {
+                        let chosen_image =  app.images.iter_mut().find(|i| i.is_chosen);
+
+                        if let Some(image) = chosen_image {
+                            let tiling_options = image.tiling_options
+                                .get_mut(&app.selected_tile_shape);
+
+                            if let Some(tiling_options) = tiling_options {
+                                for response in responses {
+                                    let tiling_option = tiling_options.iter_mut().find(|t|
+                                        t.num_tiles_x == response.num_tiles_x &&
+                                        t.num_tiles_y == response.num_tiles_y &&
+                                        t.is_chosen);
+                                
+                                    if let Some(tiling_option) = tiling_option {
+                                        tiling_option.image_tiles = Some(Arc::new(response.tiles));
+                                    }
+                                }
+
+                                let processing_completed = tiling_options.iter()
+                                    .filter(|t| t.is_chosen)
+                                    .all(|t| t.image_tiles.is_some());
+
+                                if processing_completed {
+                                    // if let Some(preview_image) = image.preview.as_mut() {
+                                    //     preview_image.generate_progress_image(app.mosaic_tiles_x, app.mosaic_tiles_y);
+                                    // }
+
+                                    app.stage = AppStage::VideoSelect;
+                                    calculate_image_colors_receiver = None;
+                                }
+
+                                should_render = true;
+                            }
+                        }
+                    }
                 }
             },
             AppStage::VideoSelect => {
-                // TODO: hot reloading of video list
+                if videos_receiver.is_none() {
+                    videos_receiver = Some(read_video_files::run(&app));
+                }
+
+                if let Some(rc) = &videos_receiver {
+                    if let Ok(videos) = rc.try_recv() {
+                        app.videos = videos;
+                        app.stage = AppStage::VideoSelect;
+                        should_render = true;
+                    }
+                }
             },
             AppStage::GenerateMosaicDatabase => {
                 if color_extractor_receiver.is_none() {
@@ -219,47 +295,6 @@ where
                     }
                 }
             },
-            AppStage::ImageSelect => {
-                if images_receiver.is_none() {
-                    images_receiver = Some(read_image_files::run(&app));
-                }
-
-                if let Some(rc) = &images_receiver {
-                    if let Ok(images) = rc.try_recv() {
-                        app.images = images;
-                        should_render = true;
-
-                        if app.images.len() > 0 {
-                            if let Some(selected_image) = app.images.get_mut(0) {
-                                selected_image.is_chosen = true;
-                                selected_image.preview = PreviewImage::new(&selected_image.full_path).ok();
-                            }
-                        }
-                    }
-                }
-            },
-            AppStage::ProcessImage => {
-                if calculate_image_colors_receiver.is_none() {
-                    calculate_image_colors_receiver = Some(calculate_image_colors::run(&app));
-                }
-
-                if let Some(rc) = &calculate_image_colors_receiver {
-                    if let Ok(image_tiles) = rc.try_recv() {
-                        if let Some(image) = app.images.iter_mut().find(|i| i.is_chosen) {
-                            image.image_tiles = Some(Arc::new(image_tiles));
-                            
-                            if let Some(preview_image) = image.preview.as_mut() {
-                                preview_image.generate_progress_image(app.mosaic_tiles_x, app.mosaic_tiles_y);
-                            }
-
-                            calculate_image_colors_receiver = None;
-
-                            app.stage = AppStage::FindingMatches;
-                            should_render = true;
-                        }
-                    }
-                }
-            },
             AppStage::FindingMatches => {
                 if find_matches_receiver.is_none() {
                     app.reset_timer();
@@ -340,6 +375,125 @@ where
                 }
 
                 match app.stage {
+                    AppStage::ImageSelect => {
+                        match key.code {
+                            KeyCode::Up => {
+                                let mut image_index = app.current_image_index;
+
+                                if image_index == 0 {
+                                    image_index = app.images.len() as u32 - 1;
+                                }
+                                else {
+                                    image_index -= 1;
+                                }
+
+                                app.current_image_index = image_index;
+                                should_render = true;
+                            },
+                            KeyCode::Down => {
+                                let mut image_index = app.current_image_index;
+
+                                if image_index == (app.images.len() as u32) - 1 {
+                                    image_index = 0;
+                                }
+                                else {
+                                    image_index += 1;
+                                }
+
+                                app.current_image_index = image_index;
+                                should_render = true;
+                            },
+                            KeyCode::Char(' ') => {
+                                let image_index = app.current_image_index;
+
+                                for image in app.images.iter_mut() {
+                                    image.is_chosen = false;
+                                }
+
+                                let selected_image = app.images.get_mut(image_index as usize);
+                                if let Some(selected_image) = selected_image {
+                                    selected_image.is_chosen = true;
+                                    if selected_image.preview.is_none() {
+                                        selected_image.preview = PreviewImage::new(&selected_image.full_path).ok();
+                                    }
+                                }
+
+                                should_render = true;
+                            },
+                            KeyCode::Enter => {
+                                if app.images.iter().any(|i| i.is_chosen) {
+                                    app.stage = AppStage::SelectMosaicOptions;
+                                }
+                                should_render = true;
+                            },
+                            _ => {}
+                        }
+                    },
+                    AppStage::SelectMosaicOptions => {
+                        if let Some(image) =  app.images.iter_mut().find(|i| i.is_chosen)
+                            && let Some(tiling_options) = image.tiling_options.get_mut(&TileShape::Landscape16x9) {
+
+                            match key.code {
+                                KeyCode::Up => {
+                                    let mut index = image.selected_tiling_option_index;
+
+                                    if index == 0 {
+                                        index = tiling_options.len() - 1;
+                                    }
+                                    else {
+                                        index -= 1;
+                                    }
+
+                                    image.selected_tiling_option_index = index;
+                                    should_render = true;
+                                },
+                                KeyCode::Down => {
+                                    let mut index = image.selected_tiling_option_index;
+
+                                    if index == tiling_options.len() - 1 {
+                                        index = 0;
+                                    }
+                                    else {
+                                        index += 1;
+                                    }
+
+                                    image.selected_tiling_option_index = index;
+                                    should_render = true;
+                                },
+                                KeyCode::Char(' ') => {
+                                    let index = image.selected_tiling_option_index;
+                                    if let Some(tiling_option) = tiling_options.get_mut(index) {
+                                        tiling_option.is_chosen = !tiling_option.is_chosen;
+                                    }
+                                    should_render = true;
+                                },
+                                KeyCode::Enter => {
+                                    let chosen_options = tiling_options.iter()
+                                        .filter(|t| t.is_chosen)
+                                        .collect::<Vec<_>>();
+
+                                    if chosen_options.len() > 0 {
+                                        let all_chosen_already_processed = chosen_options.iter()
+                                            .all(|t| t.image_tiles.is_some());
+
+                                        if all_chosen_already_processed {
+                                            app.stage = AppStage::VideoSelect;
+                                        }
+                                        else {
+                                            app.stage = AppStage::ProcessImage;
+                                        }
+                                        
+                                        should_render = true;
+                                    }
+                                },
+                                KeyCode::Backspace => {
+                                    app.stage = AppStage::ImageSelect;
+                                    should_render = true;
+                                },
+                                _ => {}
+                            }
+                        }
+                    },
                     AppStage::VideoSelect => {
                         match key.code {
                             KeyCode::Up => {
@@ -419,114 +573,11 @@ where
                                     should_render = true;
                                 }
                             },
-                            _ => {}
-                        }
-                    },
-                    AppStage::ImageSelect => {
-                        match key.code {
-                            KeyCode::Up => {
-                                let mut image_index = app.current_image_index;
-
-                                if image_index == 0 {
-                                    image_index = app.images.len() as u32 - 1;
-                                }
-                                else {
-                                    image_index -= 1;
-                                }
-
-                                app.current_image_index = image_index;
-                                should_render = true;
-                            },
-                            KeyCode::Down => {
-                                let mut image_index = app.current_image_index;
-
-                                if image_index == (app.images.len() as u32) - 1 {
-                                    image_index = 0;
-                                }
-                                else {
-                                    image_index += 1;
-                                }
-
-                                app.current_image_index = image_index;
-                                should_render = true;
-                            },
-                            KeyCode::Char(' ') => {
-                                let image_index = app.current_image_index;
-
-                                for image in app.images.iter_mut() {
-                                    image.is_chosen = false;
-                                }
-
-                                let selected_image = app.images.get_mut(image_index as usize);
-                                if let Some(selected_image) = selected_image {
-                                    selected_image.is_chosen = true;
-                                    if selected_image.preview.is_none() {
-                                        selected_image.preview = PreviewImage::new(&selected_image.full_path).ok();
-                                    }
-                                }
-
-                                should_render = true;
-                            },
-                            KeyCode::Enter => {
-                                if app.images.iter().any(|i| i.is_chosen) {
-                                    app.stage = AppStage::SelectMosaicOptions;
-                                }
-                                should_render = true;
-                            },
                             KeyCode::Backspace => {
-                                app.stage = AppStage::VideoSelect;
+                                app.stage = AppStage::SelectMosaicOptions;
                                 should_render = true;
                             },
                             _ => {}
-                        }
-                    },
-                    AppStage::SelectMosaicOptions => {
-                        if let Some(image) =  app.images.iter_mut().find(|i| i.is_chosen)
-                            && let Some(tiling_options) = image.tiling_options.get_mut(&TileShape::Landscape16x9) {
-
-                            match key.code {
-                                KeyCode::Up => {
-                                    let mut index = image.selected_tiling_option_index;
-
-                                    if index == 0 {
-                                        index = tiling_options.len() - 1;
-                                    }
-                                    else {
-                                        index -= 1;
-                                    }
-
-                                    image.selected_tiling_option_index = index;
-                                    should_render = true;
-                                },
-                                KeyCode::Down => {
-                                    let mut index = image.selected_tiling_option_index;
-
-                                    if index == tiling_options.len() - 1 {
-                                        index = 0;
-                                    }
-                                    else {
-                                        index += 1;
-                                    }
-
-                                    image.selected_tiling_option_index = index;
-                                    should_render = true;
-                                },
-                                KeyCode::Char(' ') => {
-                                    let index = image.selected_tiling_option_index;
-                                    if let Some(tiling_option) = tiling_options.get_mut(index) {
-                                        tiling_option.is_chosen = !tiling_option.is_chosen;
-                                    }
-                                    should_render = true;
-                                },
-                                KeyCode::Enter => {
-
-                                },
-                                KeyCode::Backspace => {
-                                    app.stage = AppStage::ImageSelect;
-                                    should_render = true;
-                                },
-                                _ => {}
-                            }
                         }
                     },
                     _ => {}

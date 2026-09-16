@@ -1,4 +1,6 @@
-use crate::app::{PrintSize, TileShape};
+use std::sync::Arc;
+
+use crate::{app::{PrintSize, TileShape}, color_matcher::ImageTile};
 
 const MAX_TILES_PER_AXIS: u8 = 80;
 
@@ -12,9 +14,23 @@ pub struct MosaicTilingOption {
     pub ideal_print_size: PrintSize,
 
     pub is_chosen: bool,
+    pub image_tiles: Option<Arc<Vec<ImageTile>>>,
 }
 
 impl MosaicTilingOption {
+    pub fn new(num_tiles_x: u8, num_tiles_y: u8, crop_percentage: f64, cropped_width: u32, cropped_height: u32) -> Self {
+        Self {
+            num_tiles_x,
+            num_tiles_y,
+            crop_percentage,
+            cropped_width,
+            cropped_height,
+            ideal_print_size: PrintSize::from_mosaic_tile_layout(num_tiles_x, num_tiles_y),
+            is_chosen: false,
+            image_tiles: None,
+        }
+    }
+
     pub fn tiling_candidates(
         image_width: u32,
         image_height: u32,
@@ -59,15 +75,12 @@ impl MosaicTilingOption {
                 let crop_percentage = image_area.abs_diff(cropped_area) as f64 / image_area as f64 * 100.0;
 
                 if crop_percentage <= max_allowed_cropping_percentage {
-                    candidates.push(Self {
-                        num_tiles_x: mosaic_tile_x,
-                        num_tiles_y: mosaic_tile_y,
+                    candidates.push(Self::new(
+                        mosaic_tile_x,
+                        mosaic_tile_y,
                         crop_percentage,
                         cropped_width,
-                        cropped_height,
-                        ideal_print_size: PrintSize::from_mosaic_tile_layout(mosaic_tile_x, mosaic_tile_y),
-                        is_chosen: false,
-                    });
+                        cropped_height));
                 }
             }
         }

@@ -59,10 +59,10 @@ pub fn render_ui(frame: &mut Frame, app: &mut App){
     // Main section
     match app.stage {
         AppStage::Initial => initial_loading::render(frame, main_content),
+        AppStage::ImageSelect => image_selection::render(frame, main_content, app),
+        AppStage::SelectMosaicOptions | AppStage::ProcessImage => select_mosaic_options::render(frame, main_content, app),
         AppStage::VideoSelect | AppStage::LoadMosaicDatabase => video_selection::render(frame, main_content, app),
         AppStage::GenerateMosaicDatabase => generate_database::render(frame, main_content, app),
-        AppStage::ImageSelect => image_selection::render(frame, main_content, app),
-        AppStage::SelectMosaicOptions => select_mosaic_options::render(frame, main_content, app),
         AppStage::FindingMatches => finding_matches::render(frame, main_content, app),
         _ => under_construction::render(frame, main_content),
     };
