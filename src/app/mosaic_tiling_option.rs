@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{app::{PrintSize, TileShape}, color_matcher::ImageTile};
 
-const MAX_TILES_PER_AXIS: u8 = 80;
+pub const MAX_TILES_PER_AXIS: u8 = 80;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MosaicTilingOption {

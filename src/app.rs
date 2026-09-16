@@ -11,7 +11,7 @@ mod video_indexing_report;
 
 pub use app_stage::AppStage;
 pub use image_file::{ImageFile, ImageType};
-pub use mosaic_tiling_option::MosaicTilingOption;
+pub use mosaic_tiling_option::{MosaicTilingOption, MAX_TILES_PER_AXIS};
 pub use print_sizes::PrintSize;
 pub use system_info::SystemInfo;
 pub use terminal_theme::{TerminalTheme, TerminalThemeMode};

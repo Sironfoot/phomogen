@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::{Path, PathBuf}, sync::Arc};
 
-use crate::app::{TileShape, mosaic_tiling_option::MosaicTilingOption};
+use crate::app::{TileShape, mosaic_tiling_option::{MosaicTilingOption, MAX_TILES_PER_AXIS}};
 use crate::color_matcher::{FrameMatch, ImageTile};
 use crate::images::PreviewImage;
 
@@ -70,9 +70,11 @@ impl ImageFile {
 
         let mut narrowed_candidates: Vec<MosaicTilingOption> = Vec::with_capacity(MAX_CANDIDATES);
 
-        // image shape perfectly matches tile shape, expecting 1x1, 2x2, 3x3, 4x4.....80x80
+        // image shape perfectly (or nearly perfectly) matches tile shape, expecting 1x1, 2x2, 3x3, 4x4.....80x80
         let image_aspect_ratio = image_width as f64 / image_height as f64;
-        if image_aspect_ratio == tile_shape.aspect_ratio() {
+        let all_tiles_active = total_candidates as u8 == MAX_TILES_PER_AXIS;
+
+        if image_aspect_ratio == tile_shape.aspect_ratio() || all_tiles_active {
             for candidate in candidates.iter() {
 
                 // output 1x1, 5x5, 10x10, 15x15, 20x20, 25x25, 30x30....80x80
