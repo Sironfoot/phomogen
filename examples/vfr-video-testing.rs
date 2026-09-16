@@ -62,44 +62,44 @@ fn main() {
 
 }
 
-fn get_frame_timings_slow(video_path: &Path) -> Result<Vec<f64>> {
-    let mut frame_timings: Vec<f64> = Vec::new();
+// fn get_frame_timings_slow(video_path: &Path) -> Result<Vec<f64>> {
+//     let mut frame_timings: Vec<f64> = Vec::new();
 
-    let mut child = Command::new("ffprobe")
-        .args([
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_frames",
-            "-show_entries", "frame=best_effort_timestamp_time",
-            "-of", "csv=p=0"
-        ])
-        .arg(video_path)
-        .stdout(Stdio::piped())
-        .spawn()?;
+//     let mut child = Command::new("ffprobe")
+//         .args([
+//             "-v", "error",
+//             "-select_streams", "v:0",
+//             "-show_frames",
+//             "-show_entries", "frame=best_effort_timestamp_time",
+//             "-of", "csv=p=0"
+//         ])
+//         .arg(video_path)
+//         .stdout(Stdio::piped())
+//         .spawn()?;
 
-    let stdout = child.stdout.take().unwrap();
-    let reader = BufReader::new(stdout);
+//     let stdout = child.stdout.take().unwrap();
+//     let reader = BufReader::new(stdout);
 
-    for line in reader.lines() {
-        let line = line.unwrap();
+//     for line in reader.lines() {
+//         let line = line.unwrap();
 
-        let mut parts = line.split(',');
+//         let mut parts = line.split(',');
 
-        // let Some(frame_index) = parts.next().and_then(|v| v.parse::<u32>().ok()) else {
-        //     panic!("could not extract frame index");
-        // };
+//         // let Some(frame_index) = parts.next().and_then(|v| v.parse::<u32>().ok()) else {
+//         //     panic!("could not extract frame index");
+//         // };
     
-        let Some(timing) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
-            panic!("could not extract frame timing");
-        };
+//         let Some(timing) = parts.next().and_then(|v| v.parse::<f64>().ok()) else {
+//             panic!("could not extract frame timing");
+//         };
 
-        frame_timings.push(timing);
-    }
+//         frame_timings.push(timing);
+//     }
 
-    let _ = child.wait()?;
+//     let _ = child.wait()?;
 
-    Ok(frame_timings)
-}
+//     Ok(frame_timings)
+// }
 
 fn get_frame_timings_fast(video_path: &Path) -> Result<Vec<f64>> {
     let mut frame_timings: Vec<f64> = Vec::new();
