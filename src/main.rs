@@ -25,7 +25,6 @@ use ratatui::crossterm::terminal::{
 use anyhow::Result;
 
 use crate::app::{App, AppStage, ImageFile, SystemInfo, TileShape, VideoIndexStatus, VideoIndexingReport};
-use crate::color_matcher::{FrameMatch};
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm};
 use crate::ffmpeg::crops::CropLevel;
 use crate::ui::render_ui;
@@ -74,7 +73,6 @@ fn main() -> Result<()> {
     let srgb_profile = include_bytes!("../assets/sRGB2014.icc");
 
     let mut app = App::new(&working_dir, sys_info, srgb_profile.to_vec());
-    app.set_mosaic_tiles(40, 40);
     app.set_color_tiles(num_color_tiles, num_color_tiles);
     app.color_extraction_algorithm = ColorExtractionAlgorithm::SummedAreaTable;
 
@@ -109,7 +107,7 @@ where
     let mut videos_receiver: Option<Receiver<Vec<app::VideoFile>>> = None;
     let mut color_extractor_receiver: Option<Receiver<VideoIndexingReport>> = None;
     let mut load_database_receiver: Option<Receiver<LoadDatabaseProgressReport>> = None;
-    let mut find_matches_receiver: Option<Receiver<FrameMatch>> = None;
+    let mut find_matches_receiver: Option<Receiver<find_matches::Response>> = None;
     let mut generate_mosaic_receiver: Option<Receiver<MosaicGenerationReport>> = None;
 
     let mut should_render = true;
@@ -142,12 +140,8 @@ where
                     }
                 }
             },
-            AppStage::ImageSelect => {
-               
-            },
-            AppStage::SelectMosaicOptions => {
-
-            },
+            AppStage::ImageSelect => { },
+            AppStage::SelectMosaicOptions => { },
             AppStage::ProcessImage => {
                 if calculate_image_colors_receiver.is_none() {
                     calculate_image_colors_receiver = Some(calculate_image_colors::run(&app));
@@ -180,10 +174,6 @@ where
                                     .all(|t| t.image_tiles.is_some());
 
                                 if processing_completed {
-                                    // if let Some(preview_image) = image.preview.as_mut() {
-                                    //     preview_image.generate_progress_image(app.mosaic_tiles_x, app.mosaic_tiles_y);
-                                    // }
-
                                     app.stage = AppStage::VideoSelect;
                                     calculate_image_colors_receiver = None;
                                 }
@@ -285,7 +275,7 @@ where
                                 });
 
                                 if !more_videos {
-                                    app.stage = AppStage::ImageSelect;
+                                    app.stage = AppStage::FindingMatches;
                                     load_database_receiver = None;
                                 }
                             }
@@ -298,45 +288,78 @@ where
             AppStage::FindingMatches => {
                 if find_matches_receiver.is_none() {
                     app.reset_timer();
-                    find_matches_receiver = Some(find_matches::run(app));
+                    find_matches_receiver = Some(find_matches::run(app).unwrap());
                 }
 
                 if let Some(rc) = &find_matches_receiver {
-                    let matches: Vec<FrameMatch> = rc.try_iter().collect();
+                    let responses: Vec<find_matches::Response> = rc.try_iter().collect();
 
-                    if matches.len() > 0 {
+                    if responses.len() > 0 {
                         let chosen_image = app.images.iter_mut()
-                            .find(|i| i.is_chosen && i.image_tiles.is_some());
+                            .find(|i| i.is_chosen);
+
+                        let selected_tile_shape = &app.selected_tile_shape;
 
                         if let Some(chosen_image) = chosen_image {
-                            if chosen_image.matched_tiles.is_none() {
-                                chosen_image.matched_tiles = Some(vec![]);
-                            }
+                            let tiling_options = chosen_image
+                                .tiling_options.get_mut(selected_tile_shape);
 
-                            for frame_match in matches {
-                                let tile_index = frame_match.tile_index;
-                                chosen_image.matched_tiles.as_mut().unwrap().push(frame_match);
+                            if let Some(tiling_options) = tiling_options {
+                                for response in responses {
+                                    let tiling_option = tiling_options.iter_mut().find(|t|
+                                        t.num_tiles_x == response.num_tiles_x
+                                        && t.num_tiles_y == response.num_tiles_y);
+                                
+                                    if let Some(tiling_option) = tiling_option {
+                                        let total_mosaic_tiles = tiling_option.num_tiles_x as usize * tiling_option.num_tiles_y as usize;
 
-                                let row = tile_index / app.mosaic_tiles_x;
-                                let col = tile_index % app.mosaic_tiles_y;
+                                        if tiling_option.matched_tiles.is_none() {
+                                            tiling_option.matched_tiles = Some(Vec::with_capacity(total_mosaic_tiles));
 
-                                if let Some(preview_image) = chosen_image.preview.as_mut() {
-                                    preview_image.add_progress_tile(col, row);
+                                            // starting a new tiling layout so reset progress image
+                                            if let Some(preview_image) = chosen_image.preview.as_mut() {
+                                                preview_image.generate_progress_image(
+                                                    tiling_option.num_tiles_x as u32,
+                                                    tiling_option.num_tiles_y as u32);
+                                            }
+                                        }
+
+                                        let frame_match = response.frame_match;
+                                        let tile_index = frame_match.tile_index;
+                                        
+                                        if let Some(matched_tiles) = tiling_option.matched_tiles.as_mut() {
+                                            matched_tiles.push(frame_match);
+                                        }
+
+                                        let row = tile_index / tiling_option.num_tiles_x as u32;
+                                        let col = tile_index % tiling_option.num_tiles_y as u32;
+
+                                        if let Some(preview_image) = chosen_image.preview.as_mut() {
+                                            preview_image.add_progress_tile(col, row);
+                                        }
+                                    }
+                                }
+
+                                let all_finished = tiling_options.iter()
+                                    .filter(|t| t.is_chosen)
+                                    .all(|t| {
+                                        let total_mosaic_tiles = t.num_tiles_x as usize * t.num_tiles_y as usize;
+                                        let completed_mosaic_tiles = t.matched_tiles.as_ref()
+                                            .map_or(0, |t| t.len());
+
+                                        total_mosaic_tiles == completed_mosaic_tiles
+                                    });
+
+                                if all_finished {
+                                    app.stop_timer();
+                                    app.stage = AppStage::FindingMatchesComplete;
+                                    find_matches_receiver = None;
                                 }
                             }
-
-                            let total_mosaic_tiles = (app.mosaic_tiles_x * app.mosaic_tiles_y) as usize;
-                            let completed_mosaic_tiles = chosen_image.matched_tiles.as_ref().unwrap().len();
-
-                            let is_finished = completed_mosaic_tiles == total_mosaic_tiles;
-                            if is_finished {
-                                app.stop_timer();
-                                app.stage = AppStage::GeneratingMosaic;
-                            }
                         }
-
-                        should_render = true;
                     }
+
+                    should_render = true;
                 }
             },
             AppStage::GeneratingMosaic => {
@@ -572,6 +595,18 @@ where
                                     
                                     should_render = true;
                                 }
+                            },
+                            KeyCode::Backspace => {
+                                app.stage = AppStage::SelectMosaicOptions;
+                                should_render = true;
+                            },
+                            _ => {}
+                        }
+                    },
+                    AppStage::FindingMatchesComplete => {
+                        match key.code {
+                            KeyCode::Enter => {
+                                
                             },
                             KeyCode::Backspace => {
                                 app.stage = AppStage::SelectMosaicOptions;

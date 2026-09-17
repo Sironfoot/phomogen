@@ -9,6 +9,7 @@ pub enum AppStage {
     SelectMosaicOptions,
     ProcessImage,
     FindingMatches,
+    FindingMatchesComplete,
     GeneratingMosaic,
     Quitting,
 }

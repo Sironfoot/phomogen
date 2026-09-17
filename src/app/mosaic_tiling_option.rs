@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use crate::{app::{PrintSize, TileShape}, color_matcher::ImageTile};
+use crate::{app::{PrintSize, TileShape}, color_matcher::{FrameMatch, ImageTile}};
 
 pub const MAX_TILES_PER_AXIS: u8 = 80;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct MosaicTilingOption {
     pub num_tiles_x: u8,
     pub num_tiles_y: u8,
@@ -15,6 +15,7 @@ pub struct MosaicTilingOption {
 
     pub is_chosen: bool,
     pub image_tiles: Option<Arc<Vec<ImageTile>>>,
+    pub matched_tiles: Option<Vec<FrameMatch>>,
 }
 
 impl MosaicTilingOption {
@@ -28,9 +29,10 @@ impl MosaicTilingOption {
             ideal_print_size: PrintSize::from_mosaic_tile_layout(num_tiles_x, num_tiles_y),
             is_chosen: false,
             image_tiles: None,
+            matched_tiles: None,
         }
     }
-
+    
     pub fn tiling_candidates(
         image_width: u32,
         image_height: u32,

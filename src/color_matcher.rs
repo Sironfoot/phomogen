@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::{Arc, mpsc::{self, Receiver}}, thread::{se
 
 use anyhow::Result;
 
-use crate::{app::{ImageFile, frame_data::{Color, VideoColorIndexDatabase}}, ffmpeg::crops::CropLevel};
+use crate::{app::{frame_data::{Color, VideoColorIndexDatabase}}, ffmpeg::crops::CropLevel};
 
 pub struct ColorMatcher {
     pub red_bias: u64,
@@ -44,11 +44,7 @@ impl ColorMatcher {
         self.databases.insert(String::from(video_file_name), Arc::clone(database));
     }
 
-    pub fn match_tiles(self, image: &ImageFile) -> Result<Receiver<FrameMatch>> {
-        let Some(image_tiles) = &image.image_tiles else {
-            return Err(anyhow::format_err!("image doesn't contain any tile data"));
-        };
-
+    pub fn match_tiles(self, image_tiles: &Arc<Vec<ImageTile>>) -> Result<Receiver<FrameMatch>> {
         let image_tiles = Arc::clone(image_tiles);
         let matcher = Arc::new(self);
 
@@ -196,7 +192,7 @@ pub struct FrameMatch {
     pub is_flipped: bool,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub struct ImageTile {
     pub colors: Vec<Color>,
 }

@@ -1,7 +1,7 @@
-use std::{collections::HashMap, path::{Path, PathBuf}, sync::Arc};
+use std::{collections::HashMap, path::{Path, PathBuf}};
 
 use crate::app::{TileShape, mosaic_tiling_option::{MosaicTilingOption, MAX_TILES_PER_AXIS}};
-use crate::color_matcher::{FrameMatch, ImageTile};
+use crate::color_matcher::{FrameMatch};
 use crate::images::PreviewImage;
 
 pub struct ImageFile {
@@ -12,8 +12,6 @@ pub struct ImageFile {
     pub format: super::ImageType,
     pub preview: Option<PreviewImage>, 
     pub is_chosen: bool,
-
-    pub image_tiles: Option<Arc<Vec<ImageTile>>>,
 
     pub matched_tiles: Option<Vec<FrameMatch>>,
 
@@ -35,7 +33,7 @@ impl ImageFile {
             let tiling_candidates = MosaicTilingOption::tiling_candidates(
                 width, height, 0.9, &tile_shape);
             let narrowwed_candidates = Self::narrow_down_candidates(
-                &tiling_candidates, width, height, &tile_shape);
+                tiling_candidates, width, height, &tile_shape);
 
             tiling_options.insert(tile_shape, narrowwed_candidates);
         }
@@ -48,7 +46,6 @@ impl ImageFile {
             format,
             preview: None,
             is_chosen: false,
-            image_tiles: None,
             matched_tiles: None,
             tiling_options: tiling_options,
             selected_tiling_option_index: 0,
@@ -59,13 +56,14 @@ impl ImageFile {
         self.width > self.height
     }
 
-    fn narrow_down_candidates(candidates: &[MosaicTilingOption], image_width: u32, image_height: u32, tile_shape: &TileShape) -> Vec<MosaicTilingOption> {
+    // if too many tiling options, narrow down to a max of around 20
+    fn narrow_down_candidates(candidates: Vec<MosaicTilingOption>, image_width: u32, image_height: u32, tile_shape: &TileShape) -> Vec<MosaicTilingOption> {
         const MAX_CANDIDATES: usize = 20;
 
         let total_candidates = candidates.len();
         
         if total_candidates < MAX_CANDIDATES {
-            return candidates.to_vec();
+            return candidates;
         }
 
         let mut narrowed_candidates: Vec<MosaicTilingOption> = Vec::with_capacity(MAX_CANDIDATES);
@@ -75,12 +73,12 @@ impl ImageFile {
         let all_tiles_active = total_candidates as u8 == MAX_TILES_PER_AXIS;
 
         if image_aspect_ratio == tile_shape.aspect_ratio() || all_tiles_active {
-            for candidate in candidates.iter() {
+            for candidate in candidates.into_iter() {
 
                 // output 1x1, 5x5, 10x10, 15x15, 20x20, 25x25, 30x30....80x80
                 match candidate.num_tiles_x {
-                    1 => narrowed_candidates.push(candidate.clone()),
-                    x if x % 5 == 0 =>  narrowed_candidates.push(candidate.clone()),
+                    1 => narrowed_candidates.push(candidate),
+                    x if x % 5 == 0 =>  narrowed_candidates.push(candidate),
                     _ => {},
                 }
             }
@@ -93,39 +91,45 @@ impl ImageFile {
         // all tile arrangements fit perfectly
         let all_candidates_have_no_crops = candidates.iter().all(|c| c.crop_percentage == 0.0);
         if all_candidates_have_no_crops {
-            for (i, candidate) in candidates.iter().enumerate() {
+            for (i, candidate) in candidates.into_iter().enumerate() {
                 if i % skip_count == 0 {
-                    narrowed_candidates.push(candidate.clone());
+                    narrowed_candidates.push(candidate);
                 }
             }
         }
         else {
-            for (i, candidate) in candidates.iter().enumerate() {
-                // always include first
-                if i == 0 {
-                    narrowed_candidates.push(candidate.clone());
+            let mut selected_indices: Vec<usize> = Vec::with_capacity(MAX_CANDIDATES);
+            selected_indices.push(0); // always include first
+
+            for i in 1..total_candidates {
+                if i % skip_count != 0 {
                     continue;
                 }
 
-                if i % skip_count == 0 {
-                    let prev_candidate = &candidates[i-1];
-                    let next_candidate = candidates.get(i + 1);
+                // check to see if a tiling option has a previous or next tiling option in the array that
+                // has a smaller crop_percentage because we want to use as small a crop percentage as possible
+                let first_index = i - 1;
+                let last_index = (i + 1).min(total_candidates - 1);
 
-                    let mut compare: Vec<&MosaicTilingOption> = vec![prev_candidate, candidate];
-                    if let Some(next_candidate) = next_candidate {
-                        compare.push(next_candidate);
-                    }
+                let Some(ideal_index) = (first_index..=last_index)
+                    .min_by_key(|&i| {
+                        (candidates[i].crop_percentage * 1000.0).round() as u32
+                    })
+                    else { continue; };
 
-                    let with_smallest_cropping = compare.iter()
-                        .min_by_key(|c| (c.crop_percentage * 1000.0).round() as u32);
-                    if let Some(with_smallest_cropping) = with_smallest_cropping {
-                        if !narrowed_candidates.contains(*with_smallest_cropping) {
-                            narrowed_candidates.push(with_smallest_cropping.to_owned().clone());
-                        }
-                        else {
-                            narrowed_candidates.push(candidate.clone());
-                        }
-                    }
+                if !selected_indices.contains(&ideal_index) {
+                    selected_indices.push(ideal_index);
+                }
+                else {
+                    selected_indices.push(i);
+                }
+            }
+
+            let mut candidates: Vec<Option<MosaicTilingOption>> = candidates.into_iter().map(Some).collect();
+
+            for index in selected_indices {
+                if let Some(candidate) = candidates[index].take() {
+                    narrowed_candidates.push(candidate);
                 }
             }
         }

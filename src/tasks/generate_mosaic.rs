@@ -28,8 +28,8 @@ pub fn run(app: &App) -> Result<Receiver<MosaicGenerationReport>> {
     // copy what we need
     let image_filename = chosen_image.file_name.clone();
 
-    let mosaic_tiles_x = app.mosaic_tiles_x;
-    let mosaic_tiles_y = app.mosaic_tiles_y;
+    let mosaic_tiles_x = 40;
+    let mosaic_tiles_y = 40;
 
     let max_allowed_cores = app.system_info.max_allowed_cores();
 

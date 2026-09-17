@@ -63,7 +63,7 @@ pub fn render_ui(frame: &mut Frame, app: &mut App){
         AppStage::SelectMosaicOptions | AppStage::ProcessImage => select_mosaic_options::render(frame, main_content, app),
         AppStage::VideoSelect | AppStage::LoadMosaicDatabase => video_selection::render(frame, main_content, app),
         AppStage::GenerateMosaicDatabase => generate_database::render(frame, main_content, app),
-        AppStage::FindingMatches => finding_matches::render(frame, main_content, app),
+        AppStage::FindingMatches | AppStage::FindingMatchesComplete => finding_matches::render(frame, main_content, app),
         _ => under_construction::render(frame, main_content),
     };
 

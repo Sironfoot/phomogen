@@ -43,9 +43,6 @@ pub struct App {
     pub supported_tile_shapes: Vec<TileShape>,
     pub selected_tile_shape: TileShape,
 
-    pub mosaic_tiles_x: u32,
-    pub mosaic_tiles_y: u32,
-
     pub current_video_index: u32,
     pub videos: Vec<VideoFile>,
     pub color_extraction_algorithm: ColorExtractionAlgorithm,
@@ -102,8 +99,6 @@ impl App {
             color_tiles_y: DEFAULT_COLOR_TILES,
             supported_tile_shapes: vec![TileShape::Landscape16x9],
             selected_tile_shape: TileShape::Landscape16x9,
-            mosaic_tiles_x: 40,
-            mosaic_tiles_y: 40,
             current_video_index: 0,
             videos: vec![],
             color_extraction_algorithm: ColorExtractionAlgorithm::PixelArrayTraversal,
@@ -159,11 +154,6 @@ impl App {
     pub fn set_color_tiles(&mut self, num_x: u32, num_y: u32) {
         self.color_tiles_x = num_x;
         self.color_tiles_y = num_y;
-    }
-
-    pub fn set_mosaic_tiles(&mut self, num_x: u32, num_y: u32) {
-        self.mosaic_tiles_x = num_x;
-        self.mosaic_tiles_y = num_y;
     }
 
     pub fn total_selected_video_duration(&self) -> Duration {
