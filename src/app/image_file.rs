@@ -1,7 +1,6 @@
 use std::{collections::HashMap, path::{Path, PathBuf}};
 
 use crate::app::{TileShape, mosaic_tiling_option::{MosaicTilingOption, MAX_TILES_PER_AXIS}};
-use crate::color_matcher::{FrameMatch};
 use crate::images::PreviewImage;
 
 pub struct ImageFile {
@@ -12,8 +11,6 @@ pub struct ImageFile {
     pub format: super::ImageType,
     pub preview: Option<PreviewImage>, 
     pub is_chosen: bool,
-
-    pub matched_tiles: Option<Vec<FrameMatch>>,
 
     pub tiling_options: HashMap<TileShape, Vec<MosaicTilingOption>>,
     pub selected_tiling_option_index: usize,
@@ -46,7 +43,6 @@ impl ImageFile {
             format,
             preview: None,
             is_chosen: false,
-            matched_tiles: None,
             tiling_options: tiling_options,
             selected_tiling_option_index: 0,
         }

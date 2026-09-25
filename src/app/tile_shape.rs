@@ -20,6 +20,14 @@ impl TileShape {
         let (dim_x, dim_y) = self.aspect_dimensions();
         dim_x as f64 / dim_y as f64
     }
+
+    pub fn get_temp_image_tile_dimensions(&self) -> (u32, u32) {
+        match self {
+            Self::Landscape16x9 => (960, 540),
+            Self::Square => (960, 960),
+            Self::Portrait9x16 => (540, 960),
+        }
+    }
 }
 
 impl Display for TileShape {

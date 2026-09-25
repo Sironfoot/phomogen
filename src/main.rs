@@ -38,8 +38,7 @@ use crate::tasks::{
     load_databases::LoadDatabaseProgressReport,
     calculate_image_colors,
     find_matches,
-    generate_mosaic,
-    generate_mosaic::MosaicGenerationReport
+    generate_mosaic
 };
 
 fn main() -> Result<()> {
@@ -108,7 +107,7 @@ where
     let mut color_extractor_receiver: Option<Receiver<VideoIndexingReport>> = None;
     let mut load_database_receiver: Option<Receiver<LoadDatabaseProgressReport>> = None;
     let mut find_matches_receiver: Option<Receiver<find_matches::Response>> = None;
-    let mut generate_mosaic_receiver: Option<Receiver<MosaicGenerationReport>> = None;
+    let mut generate_mosaic_receiver: Option<Receiver<generate_mosaic::Response>> = None;
 
     let mut should_render = true;
 
@@ -364,11 +363,12 @@ where
             },
             AppStage::GeneratingMosaic => {
                 if generate_mosaic_receiver.is_none() {
+                    app.reset_timer();
                     generate_mosaic_receiver = Some(generate_mosaic::run(app).expect("Error"));
                 }
 
                 if let Some(rc) = &generate_mosaic_receiver {
-                    let reports: Vec<MosaicGenerationReport> = rc.try_iter().collect();
+                    let reports: Vec<generate_mosaic::Response> = rc.try_iter().collect();
 
                     if reports.len() > 0 {
                         for _ in reports {
@@ -606,7 +606,8 @@ where
                     AppStage::FindingMatchesComplete => {
                         match key.code {
                             KeyCode::Enter => {
-                                
+                                app.stage = AppStage::GeneratingMosaic;
+                                should_render = true;
                             },
                             KeyCode::Backspace => {
                                 app.stage = AppStage::SelectMosaicOptions;
