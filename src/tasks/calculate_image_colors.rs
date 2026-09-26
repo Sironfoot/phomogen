@@ -72,7 +72,7 @@ pub fn run(app: &App) -> Receiver<Response> {
             let resize_height = mosaic_tile_height * num_tiles_y;
 
             let image_data = imageops::resize(
-                &image_data, resize_width, resize_height, FilterType::CatmullRom);
+                &image_data, resize_width, resize_height, FilterType::Lanczos3);
 
             let color_tile_width = f64::round(mosaic_tile_width as f64 / color_tiles_x as f64) as u32;
             let color_tile_height = f64::round(mosaic_tile_height as f64 / color_tiles_y as f64) as u32;
