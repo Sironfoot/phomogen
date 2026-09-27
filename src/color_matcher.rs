@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::{Arc, mpsc::{self, Receiver}}, thread::{self}};
+use std::{collections::HashMap, sync::{Arc, atomic::{AtomicUsize, Ordering}, mpsc::{self, Receiver}}, thread::{self}};
 
 use anyhow::Result;
 
@@ -48,38 +48,31 @@ impl ColorMatcher {
         let image_tiles = Arc::clone(image_tiles);
         let matcher = Arc::new(self);
 
-        let num_mosaic_tiles = matcher.mosaic_tiles_x * matcher.mosaic_tiles_y;
-
-        //let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(self.num_workers as usize);
+        let num_mosaic_tiles = (matcher.mosaic_tiles_x * matcher.mosaic_tiles_y) as usize;
+        let num_workers = (matcher.num_workers as usize).min(num_mosaic_tiles);
+        
+        let next_tile_index = Arc::new(AtomicUsize::new(0));
         let (tx, rc) = mpsc::channel::<FrameMatch>();
 
-        // 10 frames / 3 threads: 10 / 3 floored = 3
-        let tiles_per_worker = f64::floor(num_mosaic_tiles as f64 / matcher.num_workers as f64) as u32;
-        // remainder on division 10 / 3 = 1
-        let remainder_tiles =  num_mosaic_tiles % matcher.num_workers;
-
-        for worker_index in 0..matcher.num_workers {
-            let is_last = worker_index == (matcher.num_workers - 1);
-
-            let starting_tile_index = worker_index * tiles_per_worker;
-
-            //  10 tiles / 3 threads, thread 1 = 1,2,3, thread 2 = 4,5,6, thread 3 = 6,7,8,10
-            let ending_tile_index = match is_last {
-                true => (starting_tile_index + tiles_per_worker) + remainder_tiles,
-                false => starting_tile_index + tiles_per_worker
-            };
-
+        for _ in 0..num_workers {
             let matcher = Arc::clone(&matcher);
             let image_tiles = Arc::clone(&image_tiles);
+            let next_tile_index = Arc::clone(&next_tile_index);
             let tx = tx.clone();
 
             thread::spawn(move || {
-                for tile_index in starting_tile_index..ending_tile_index {
-                    let tile = &image_tiles[tile_index as usize];
+                loop {
+                    let tile_index = next_tile_index.fetch_add(1, Ordering::Relaxed);
 
-                    let frame_match = matcher.find_nearest_color(tile, tile_index);
+                    // stop the thread when no more tiles left
+                    if tile_index >= num_mosaic_tiles {
+                        break;
+                    }
 
-                     if tx.send(frame_match).is_err() {
+                    let tile = &image_tiles[tile_index];
+                    let frame_match = matcher.find_nearest_color(tile, tile_index as u32);
+
+                    if tx.send(frame_match).is_err() {
                         // The receiver was dropped, so stop working.
                         break;
                     }

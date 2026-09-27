@@ -1,9 +1,9 @@
-use std::{collections::HashMap, fs, sync::{mpsc::{self, Receiver}}, thread::{self, JoinHandle}};
+use std::{collections::HashMap, fs, sync::{Arc, atomic::{AtomicUsize, Ordering}, mpsc::{self, Receiver}}, thread::{self, JoinHandle}};
 
 use crate::{app::App, ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch}, tile_blender::TileBlender};
 
 use anyhow::Result;
-use image::{GenericImage, ImageBuffer, ImageEncoder, Rgb, RgbImage, codecs::{jpeg::JpegEncoder, png::PngEncoder}, imageops};
+use image::{DynamicImage, GenericImage, ImageBuffer, ImageEncoder, Rgb, RgbImage, codecs::{jpeg::JpegEncoder, png::PngEncoder}, imageops};
 use image::imageops::FilterType;
 
 const LARGEST_PRINT_DIMENSION: u32 = 14000;
@@ -107,57 +107,92 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
                 let Some(video) = videos.iter()
                     .find(|v| v.file_name == video_filname) else { continue; };
 
-                let total_matches = video_frame_matches.len() as u32;
-                // ensure total threads aren't more than total matches
-                let num_workers = num_workers.min(total_matches);
-            
-                let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(num_workers as usize);
-                let (tx, rc) = mpsc::channel::<ImageTileData>();
+                let mut frame_indices = video_frame_matches.iter()
+                    .map(|frame| frame.frame_index)
+                    .collect::<Vec<u32>>();
 
-                // 10 matches / 3 threads: 10 / 3 floored = 3
-                let matches_per_worker = f64::floor(total_matches as f64 / num_workers as f64) as u32;
-                // remainder on division 10 / 3 = 1
-                let remainder_matches = total_matches as u32 % num_workers as u32;
+                frame_indices.sort_unstable();
+                frame_indices.dedup();
+
+                let total_frame_indices = frame_indices.len();
+
+                // ensure total threads aren't more than total matches
+                let num_workers = (num_workers as usize).min(total_frame_indices);
+            
+                let next_index = Arc::new(AtomicUsize::new(0));
+                let frame_indices = Arc::new(frame_indices);
+                let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(num_workers as usize);
+
+                let (tx, rc) = mpsc::channel::<(u32, ImageBuffer<Rgb<u8>, Vec<u8>>)>();
 
                 for worker_index in 0..num_workers {
-                    let is_last = worker_index == (num_workers - 1);
-
-                    let starting_match_index = worker_index as u32 * matches_per_worker;
-
-                    //  10 matches / 3 threads, thread 1 = 1,2,3, thread 2 = 4,5,6, thread 3 = 6,7,8,10
-                    let ending_match_index = match is_last {
-                        true => (starting_match_index + matches_per_worker) + remainder_matches,
-                        false => starting_match_index + matches_per_worker
-                    };
-
-                    let workers_matches = video_frame_matches[
-                        starting_match_index as usize..ending_match_index as usize].to_vec().clone();
-
                     let video_metadata = video.clone();
+                    let frame_indices = Arc::clone(&frame_indices);
+                    let next_index = Arc::clone(&next_index);
                     let tx = tx.clone();
                     
                     workers.push(thread::spawn(move || {
-                        let mut frame_extractor = FrameExtractor::new(worker_index, video_metadata);
-                        frame_extractor.run(&workers_matches, tx).unwrap();
+                        let mut frame_extractor = FrameExtractor::new(worker_index as u32, video_metadata);
+
+                        loop {
+                            let index = next_index.fetch_add(1, Ordering::Relaxed);
+
+                            // stop the thread when no more tiles left
+                            if index >= total_frame_indices {
+                                break;
+                            }
+
+                            let frame_index = frame_indices[index];
+                            let image = frame_extractor.extract(frame_index).unwrap();
+                        
+                            if tx.send((frame_index, image)).is_err() {
+                                // The receiver was dropped, so stop working.
+                                break;
+                            }
+                        }
                     }));
                 }
 
                 drop(tx);
 
-                for tile in rc {
-                    let row = tile.tile_index / num_tiles_x as u32;
-                    let col = tile.tile_index % num_tiles_x as u32;
+                for (frame_index, image) in rc {
+                    let matches = video_frame_matches.iter()
+                        .filter(|frame_match| frame_match.frame_index == frame_index);
 
-                    let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
+                    let (frame_width, frame_height) = image.dimensions();
 
-                    let resized = imageops::resize(&tile.data, temp_tile_width, temp_tile_height, FilterType::Lanczos3);
-                    resized.save(tile_path).unwrap();
+                    for matched_frame in matches {
+                        let pos_x = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_pos_x as f64) as u32;
+                        let pos_y = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_pos_y as f64) as u32;
+                    
+                        let cropped_width = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_resize as f64) as u32;
+                        let cropped_height = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_resize as f64) as u32;
+                    
+                        let mut crop = imageops::crop_imm(&image, pos_x, pos_y, cropped_width, cropped_height).to_image();
+                        
+                        if matched_frame.is_flipped {
+                            imageops::flip_horizontal_in_place(&mut crop);
+                        }
 
-                    progress_sender.send(Response {
-                        num_tiles_x: num_tiles_x,
-                        num_tiles_y: num_tiles_y,
-                        tile_index: tile.tile_index,
-                    }).unwrap();
+                        let tile = ImageTileData {
+                            tile_index: matched_frame.tile_index,
+                            data: DynamicImage::ImageRgb8(crop),
+                        };
+
+                        let row = tile.tile_index / num_tiles_x as u32;
+                        let col = tile.tile_index % num_tiles_x as u32;
+
+                        let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
+
+                        let resized = imageops::resize(&tile.data, temp_tile_width, temp_tile_height, FilterType::Lanczos3);
+                        resized.save(tile_path).unwrap();
+
+                        progress_sender.send(Response {
+                            num_tiles_x: num_tiles_x,
+                            num_tiles_y: num_tiles_y,
+                            tile_index: tile.tile_index,
+                        }).unwrap();
+                    }
                 }
 
                 for worker in workers {
@@ -177,14 +212,14 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
                 (LARGEST_PRINT_DIMENSION as f64 * ratio).round() as u32
             };
 
-            let target_width: u32 = if is_landscape { LARGEST_PRINT_DIMENSION } else { smallest_dimension }; // 14000
-            let target_height: u32 = if is_landscape { smallest_dimension } else { LARGEST_PRINT_DIMENSION }; // 7876
+            let target_width: u32 = if is_landscape { LARGEST_PRINT_DIMENSION } else { smallest_dimension };
+            let target_height: u32 = if is_landscape { smallest_dimension } else { LARGEST_PRINT_DIMENSION };
 
-            let tile_width = (target_width as f64 / num_tiles_x as f64).round() as u32; // 350
-            let tile_height = (target_height as f64 / num_tiles_y as f64).round() as u32; // 197
+            let tile_width = (target_width as f64 / num_tiles_x as f64).round() as u32;
+            let tile_height = (target_height as f64 / num_tiles_y as f64).round() as u32;
 
-            let final_width = tile_width * num_tiles_x as u32; // 14000
-            let final_height = tile_height * num_tiles_y as u32; // 7,880
+            let final_width = tile_width * num_tiles_x as u32;
+            let final_height = tile_height * num_tiles_y as u32;
             
             let mut canvas: ImageBuffer<Rgb<u8>, Vec<u8>> = RgbImage::new(final_width, final_height);
 
