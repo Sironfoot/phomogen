@@ -77,6 +77,13 @@ impl MosaicTilingOption {
 
         0.0
     }
+
+    pub fn reset_progress(&mut self) {
+        self.matched_tiles = None;
+        self.extracted_frames = None;
+        self.processed_image_tiles = None;
+        self.mosaic_generation_complete = false;
+    }
     
     pub fn tiling_candidates(
         image_width: u32,

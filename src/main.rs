@@ -517,7 +517,7 @@ where
                     _ => {}
                 }
 
-                match app.stage {
+                match &app.stage {
                     AppStage::ImageSelect => {
                         match key.code {
                             KeyCode::Up => {
@@ -709,7 +709,7 @@ where
                                             app.stage = AppStage::LoadMosaicDatabase;
                                         }
                                         else {
-                                            app.stage = AppStage::ImageSelect
+                                            app.stage = AppStage::GeneratingMosaic(GenerateMosaicSubStage::FindingMatches);
                                         }
                                     }
                                     
@@ -723,13 +723,34 @@ where
                             _ => {}
                         }
                     },
-                    AppStage::GeneratingMosaic(_) => {
-                        match key.code {
-                            KeyCode::Char(' ') => {
-                                app.stage = AppStage::SelectMosaicOptions;
-                                should_render = true;
-                            },
-                            _ => {}
+                    AppStage::GeneratingMosaic(sub_stage) => {
+                        if sub_stage == &GenerateMosaicSubStage::Complete {
+                            match key.code {
+                                KeyCode::Enter => {
+                                    // reset tiling option progress
+                                    let chosen_image = app.images.iter_mut()
+                                        .find(|i| i.is_chosen);
+
+                                    let selected_tile_shape = &app.selected_tile_shape;
+
+                                    if let Some(chosen_image) = chosen_image {
+                                        let tiling_options = chosen_image
+                                            .tiling_options.get_mut(selected_tile_shape);
+
+                                        if let Some(tiling_options) = tiling_options {
+                                            for tiling_option in tiling_options {
+                                                tiling_option.is_chosen = false;
+                                                tiling_option.reset_progress();
+                                            }
+                                        }
+                                    }
+
+                                    // back to mosaic options screen
+                                    app.stage = AppStage::SelectMosaicOptions;
+                                    should_render = true;
+                                },
+                                _ => {}
+                            }
                         }
                     },
                     _ => {}

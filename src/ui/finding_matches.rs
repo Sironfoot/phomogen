@@ -259,7 +259,7 @@ pub fn render(frame: &mut Frame, main: Rect, sub_stage: GenerateMosaicSubStage, 
     }
     else {
         let wait_text = Paragraph::new(
-            Text::styled("Finished!\nPress space to continue...", Style::default().fg(Color::Green))
+            Text::styled("Finished!\n(Enter) to continue...", Style::default().fg(Color::Green))
         )
         .wrap(Wrap::default())
         .alignment(ratatui::layout::HorizontalAlignment::Center);
