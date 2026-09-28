@@ -8,7 +8,6 @@ const BYTES_PER_PIXEL: u32 = 3;
 const DEFAULT_RESIZE_WIDTH: u32 = 1920;
 const SMALLEST_RESIZED_WIDTH: u32 = 640;
 
-
 #[derive(Debug, Clone)]
 pub struct VideoFrameMatch {
     pub tile_index: u32,

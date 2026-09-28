@@ -1,9 +1,9 @@
-use std::{collections::HashMap, fs, sync::{Arc, atomic::{AtomicUsize, Ordering}, mpsc::{self, Receiver}}, thread::{self, JoinHandle}};
+use std::{collections::HashMap, fs, io::{BufWriter, Write}, sync::{Arc, atomic::{AtomicUsize, Ordering}, mpsc::{self, Receiver}}, thread::{self, JoinHandle}};
 
 use crate::{app::App, ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch}};
 
 use anyhow::Result;
-use image::{DynamicImage, ImageBuffer, Rgb, imageops};
+use image::{DynamicImage, ImageBuffer, ImageEncoder, Rgb, codecs::png::PngEncoder, imageops};
 use image::imageops::FilterType;
 
 pub struct Response {
@@ -68,6 +68,8 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
             fs::create_dir(&database_dir).unwrap();
         }
 
+        let videos = Arc::new(videos);
+
         for (num_tiles_x, num_tiles_y, _, _, matched_tiles) in chosen_tiling_options {
             // create the temporary mosaic directory
             let temp_mosaic_dir_name = format!("{image_filename}_temp_{num_tiles_x}x{num_tiles_y}");
@@ -78,121 +80,132 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
                 fs::create_dir(&temp_mosaic_dir).unwrap();
             }
 
-            let mut video_frame_matches: HashMap<&str, Vec<VideoFrameMatch>> = HashMap::new();
+            let num_workers = max_allowed_cores * 1;
 
-            // group into videos
-            for frame_match in &matched_tiles {
-                let entry = video_frame_matches
-                    .entry(frame_match.video_filename.as_str())
-                    .or_insert_with(|| Vec::new());
+            // group by video filename and frame index
+            let mut unique_video_frames: HashMap<(String, u32), Vec<VideoFrameMatch>> = HashMap::new();
+            let mut keys: Vec<(String, u32)> = Vec::new();
+
+            for matched_tile in &matched_tiles {
+                let entry = unique_video_frames
+                    .entry((matched_tile.video_filename.clone(), matched_tile.frame_index))
+                    .or_insert_with(|| {
+                        keys.push((matched_tile.video_filename.clone(), matched_tile.frame_index));
+
+                        Vec::new()
+                    });
 
                 entry.push(VideoFrameMatch {
-                    tile_index: frame_match.tile_index,
-                    frame_index: frame_match.frame_index,
-                    crop_resize: frame_match.crop_resize,
-                    crop_pos_x: frame_match.crop_pos_x,
-                    crop_pos_y: frame_match.crop_pos_y,
-                    is_flipped: frame_match.is_flipped,
+                    tile_index: matched_tile.tile_index,
+                    frame_index: matched_tile.frame_index,
+                    crop_resize: matched_tile.crop_resize,
+                    crop_pos_x: matched_tile.crop_pos_x,
+                    crop_pos_y: matched_tile.crop_pos_y,
+                    is_flipped: matched_tile.is_flipped,
                 });
             }
 
-            let num_workers = max_allowed_cores / 1;
+            // ensure total threads aren't more than total matches
+            let num_workers = (num_workers as usize).min(keys.len());
+        
+            let next_index = Arc::new(AtomicUsize::new(0));
+            let keys = Arc::new(keys);
+            let videos = Arc::clone(&videos);
+            let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(num_workers as usize);
 
-            for (video_filname, video_frame_matches) in video_frame_matches {
-                let Some(video) = videos.iter()
-                    .find(|v| v.file_name == video_filname) else { continue; };
+            let (tx, rc) = mpsc::channel::<(String, u32, ImageBuffer<Rgb<u8>, Vec<u8>>)>();
 
-                let mut frame_indices = video_frame_matches.iter()
-                    .map(|frame| frame.frame_index)
-                    .collect::<Vec<u32>>();
-
-                frame_indices.sort_unstable();
-                frame_indices.dedup();
-
-                let total_frame_indices = frame_indices.len();
-
-                // ensure total threads aren't more than total matches
-                let num_workers = (num_workers as usize).min(total_frame_indices);
-            
-                let next_index = Arc::new(AtomicUsize::new(0));
-                let frame_indices = Arc::new(frame_indices);
-                let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(num_workers as usize);
-
-                let (tx, rc) = mpsc::channel::<(u32, ImageBuffer<Rgb<u8>, Vec<u8>>)>();
-
-                for _ in 0..num_workers {
-                    let video_metadata = video.clone();
-                    let frame_indices = Arc::clone(&frame_indices);
-                    let next_index = Arc::clone(&next_index);
-                    let tx = tx.clone();
+            for _ in 0..num_workers {
+                let next_index = Arc::clone(&next_index);
+                let tx = tx.clone();
+                let keys = Arc::clone(&keys);
+                let videos = Arc::clone(&videos);
+                
+                workers.push(thread::spawn(move || {
+                    loop {
+                        let index = next_index.fetch_add(1, Ordering::Relaxed);
                     
-                    workers.push(thread::spawn(move || {
-                        let mut frame_extractor = FrameExtractor::new(video_metadata);
-
-                        loop {
-                            let index = next_index.fetch_add(1, Ordering::Relaxed);
-
-                            // stop the thread when no more tiles left
-                            if index >= total_frame_indices {
-                                break;
-                            }
-
-                            let frame_index = frame_indices[index];
-                            let image = frame_extractor.extract(frame_index).unwrap();
-                        
-                            if tx.send((frame_index, image)).is_err() {
-                                // The receiver was dropped, so stop working.
-                                break;
-                            }
-                        }
-                    }));
-                }
-
-                drop(tx);
-
-                for (frame_index, image) in rc {
-                    let matches = video_frame_matches.iter()
-                        .filter(|frame_match| frame_match.frame_index == frame_index);
-
-                    let (frame_width, frame_height) = image.dimensions();
-
-                    for matched_frame in matches {
-                        let pos_x = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_pos_x as f64) as u32;
-                        let pos_y = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_pos_y as f64) as u32;
-                    
-                        let cropped_width = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_resize as f64) as u32;
-                        let cropped_height = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_resize as f64) as u32;
-                    
-                        let mut crop = imageops::crop_imm(&image, pos_x, pos_y, cropped_width, cropped_height).to_image();
-                        
-                        if matched_frame.is_flipped {
-                            imageops::flip_horizontal_in_place(&mut crop);
+                        // stop the thread when no more tiles left
+                        if index >= keys.len() {
+                            break;
                         }
 
-                        let tile = ImageTileData {
-                            tile_index: matched_frame.tile_index,
-                            data: DynamicImage::ImageRgb8(crop),
-                        };
+                        let (video_filename, frame_index) = &keys[index];
+                        
+                        let Some(video) = videos.iter()
+                            .find(|v| v.file_name == *video_filename) else { continue; };
 
-                        let row = tile.tile_index / num_tiles_x as u32;
-                        let col = tile.tile_index % num_tiles_x as u32;
-
-                        let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-
-                        let resized = imageops::resize(&tile.data, temp_tile_width, temp_tile_height, FilterType::Lanczos3);
-                        resized.save(tile_path).unwrap();
-
-                        progress_sender.send(Response {
-                            num_tiles_x: num_tiles_x,
-                            num_tiles_y: num_tiles_y,
-                            tile_index: tile.tile_index,
-                        }).unwrap();
+                        let mut frame_extractor = FrameExtractor::new(video.clone());
+                        let image = frame_extractor.extract(*frame_index).unwrap();
+                    
+                        if tx.send((video_filename.clone(), *frame_index, image)).is_err() {
+                            // The receiver was dropped, so stop working.
+                            break;
+                        }
                     }
-                }
+                }));
+            }
 
-                for worker in workers {
-                    worker.join().unwrap();
+            drop(tx);
+
+            for (video_filename, frame_index, image) in rc {
+                let Some(matches) = unique_video_frames
+                    .get(&(video_filename, frame_index)) else { continue; };
+
+                let (frame_width, frame_height) = image.dimensions();
+
+                for matched_frame in matches {
+                    let pos_x = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_pos_x as f64) as u32;
+                    let pos_y = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_pos_y as f64) as u32;
+                
+                    let cropped_width = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_resize as f64) as u32;
+                    let cropped_height = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_resize as f64) as u32;
+                
+                    let mut crop = imageops::crop_imm(&image, pos_x, pos_y, cropped_width, cropped_height).to_image();
+                    
+                    if matched_frame.is_flipped {
+                        imageops::flip_horizontal_in_place(&mut crop);
+                    }
+
+                    let tile = ImageTileData {
+                        tile_index: matched_frame.tile_index,
+                        data: DynamicImage::ImageRgb8(crop),
+                    };
+
+                    let row = tile.tile_index / num_tiles_x as u32;
+                    let col = tile.tile_index % num_tiles_x as u32;
+
+                    let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
+
+                    let file_write = fs::File::create_new(&tile_path).unwrap();
+                    let mut writer = BufWriter::with_capacity(256 * 1024, file_write);
+                    let encoder = PngEncoder::new(&mut writer);
+
+                    let resized = imageops::resize(
+                        tile.data.as_rgb8().unwrap(),
+                        temp_tile_width,
+                        temp_tile_height,
+                        FilterType::Lanczos3);
+
+                    encoder.write_image(
+                        resized.as_raw(),
+                        resized.width(),
+                        resized.height(),
+                        image::ExtendedColorType::Rgb8
+                    ).unwrap();
+
+                    writer.flush().unwrap();
+
+                    progress_sender.send(Response {
+                        num_tiles_x: num_tiles_x,
+                        num_tiles_y: num_tiles_y,
+                        tile_index: tile.tile_index,
+                    }).unwrap();
                 }
+            }
+
+            for worker in workers {
+                worker.join().unwrap();
             }
         }
     });
