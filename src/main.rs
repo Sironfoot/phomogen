@@ -39,7 +39,7 @@ use crate::tasks::{
     load_databases::LoadDatabaseProgressReport,
     calculate_image_colors,
     mosaic_find_matches,
-    mosaic_generate
+    mosaic_extract_frames
 };
 
 fn main() -> Result<()> {
@@ -108,7 +108,7 @@ where
     let mut color_extractor_receiver: Option<Receiver<VideoIndexingReport>> = None;
     let mut load_database_receiver: Option<Receiver<LoadDatabaseProgressReport>> = None;
     let mut find_matches_receiver: Option<Receiver<mosaic_find_matches::Response>> = None;
-    let mut generate_mosaic_receiver: Option<Receiver<mosaic_generate::Response>> = None;
+    let mut generate_mosaic_receiver: Option<Receiver<mosaic_extract_frames::Response>> = None;
     let mut generate_image_receiver: Option<Receiver<mosaic_build_image::Response>> = None;
 
     let mut should_render = true;
@@ -358,11 +358,11 @@ where
                     },
                     GenerateMosaicSubStage::ExtracingFrames => {
                         if generate_mosaic_receiver.is_none() {
-                            generate_mosaic_receiver = Some(mosaic_generate::run(app).expect("Error"));
+                            generate_mosaic_receiver = Some(mosaic_extract_frames::run(app).expect("Error"));
                         }
 
                         if let Some(rc) = &generate_mosaic_receiver {
-                            let responses: Vec<mosaic_generate::Response> = rc.try_iter().collect();
+                            let responses: Vec<mosaic_extract_frames::Response> = rc.try_iter().collect();
 
                             if responses.len() > 0 {
                                 let chosen_image = app.images.iter_mut()
