@@ -1,4 +1,4 @@
-use std::{fs, sync::mpsc::{self, Receiver}, thread};
+use std::{fs, io::{BufWriter, Write}, sync::mpsc::{self, Receiver}, thread};
 
 use anyhow::Result;
 use image::{GenericImage, ImageBuffer, ImageEncoder, Rgb, RgbImage, codecs::{jpeg::JpegEncoder, png::PngEncoder}, imageops};
@@ -133,8 +133,9 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
             let image_path = mosaics_dir.join(&mosaic_image_name);
 
             let file_write = fs::File::create_new(&image_path).unwrap();
+            let mut writer = BufWriter::with_capacity(256 * 1024, file_write);
+            let mut encoder = PngEncoder::new(&mut writer);
 
-            let mut encoder = PngEncoder::new(file_write);
             encoder.set_icc_profile(srgb_profile.clone()).unwrap();
             encoder.write_image(
                 canvas.as_raw(),
@@ -143,12 +144,16 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
                 image::ExtendedColorType::Rgb8
             ).unwrap();
 
+            writer.flush().unwrap();
+
             // create smaller version for social media etc.
             let mosaic_image_name = format!("{image_filename}_{num_tiles_x}x{num_tiles_y}.jpeg");
             let image_path = mosaics_dir.join(&mosaic_image_name);
 
             let file_write = fs::File::create_new(&image_path).unwrap();
-            let mut encoder = JpegEncoder::new_with_quality(file_write, 99);
+            let mut writer = BufWriter::with_capacity(256 * 1024, file_write);
+            let mut encoder = JpegEncoder::new_with_quality(&mut writer, 99);
+
             encoder.set_icc_profile(srgb_profile.clone()).unwrap();
 
             let smallest_social_dimension = if is_landscape {
@@ -169,6 +174,8 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
                 jpeg_canvas.height(),
                 image::ExtendedColorType::Rgb8
             ).unwrap();
+
+            writer.flush().unwrap();
 
             fs::remove_dir_all(&temp_mosaic_dir).unwrap();
 
