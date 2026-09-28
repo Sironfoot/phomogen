@@ -57,13 +57,13 @@ pub fn render_ui(frame: &mut Frame, app: &mut App){
     frame.render_widget(title, header);
 
     // Main section
-    match app.stage {
+    match &app.stage {
         AppStage::Initial => initial_loading::render(frame, main_content),
         AppStage::ImageSelect => image_selection::render(frame, main_content, app),
         AppStage::SelectMosaicOptions | AppStage::ProcessImage => select_mosaic_options::render(frame, main_content, app),
         AppStage::VideoSelect | AppStage::LoadMosaicDatabase => video_selection::render(frame, main_content, app),
         AppStage::GenerateMosaicDatabase => generate_database::render(frame, main_content, app),
-        AppStage::FindingMatches | AppStage::FindingMatchesComplete => finding_matches::render(frame, main_content, app),
+        AppStage::GeneratingMosaic(sub_stage) => finding_matches::render(frame, main_content, sub_stage.clone(), app),
         _ => under_construction::render(frame, main_content),
     };
 

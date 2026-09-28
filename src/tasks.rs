@@ -5,3 +5,4 @@ pub mod load_databases;
 pub mod calculate_image_colors;
 pub mod find_matches;
 pub mod generate_mosaic;
+pub mod generate_image;

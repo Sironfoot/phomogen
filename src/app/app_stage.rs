@@ -8,8 +8,14 @@ pub enum AppStage {
     ImageSelect,
     SelectMosaicOptions,
     ProcessImage,
-    FindingMatches,
-    FindingMatchesComplete,
-    GeneratingMosaic,
+    GeneratingMosaic(GenerateMosaicSubStage),
     Quitting,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub enum GenerateMosaicSubStage {
+    FindingMatches,
+    ExtracingFrames,
+    GeneratingImage,
+    Complete
 }

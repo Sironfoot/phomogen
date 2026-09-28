@@ -9,7 +9,7 @@ mod tile_shape;
 mod video_file;
 mod video_indexing_report;
 
-pub use app_stage::AppStage;
+pub use app_stage::{AppStage, GenerateMosaicSubStage};
 pub use image_file::{ImageFile, ImageType};
 pub use mosaic_tiling_option::{MosaicTilingOption, MAX_TILES_PER_AXIS};
 pub use print_sizes::PrintSize;

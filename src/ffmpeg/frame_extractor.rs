@@ -6,7 +6,7 @@ use crate::ffmpeg::VideoMetadata;
 
 const BYTES_PER_PIXEL: u32 = 3;
 const DEFAULT_RESIZE_WIDTH: u32 = 1920;
-const SMALLEST_RESIZED_WIDTH:u32 = 640;
+const SMALLEST_RESIZED_WIDTH: u32 = 640;
 
 
 #[derive(Debug, Clone)]
@@ -26,18 +26,15 @@ pub struct ImageTileData {
 }
 
 pub struct FrameExtractor {
-    pub instance_id: u32,
     video: VideoMetadata,
-
     resize_width: u32,
 }
 
 impl FrameExtractor {
-    pub fn new(instance_id: u32, video: VideoMetadata) -> Self {
+    pub fn new(video: VideoMetadata) -> Self {
         let resize_width = cmp::min(DEFAULT_RESIZE_WIDTH, video.width);
 
         Self {
-            instance_id,
             video,
             resize_width: resize_width,
         }

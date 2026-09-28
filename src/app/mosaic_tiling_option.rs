@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc};
 
 use crate::{app::{PrintSize, TileShape}, color_matcher::{FrameMatch, ImageTile}};
 
@@ -14,12 +14,21 @@ pub struct MosaicTilingOption {
     pub ideal_print_size: PrintSize,
 
     pub is_chosen: bool,
+
     pub image_tiles: Option<Arc<Vec<ImageTile>>>,
     pub matched_tiles: Option<Vec<FrameMatch>>,
+
+    pub extracted_frames: Option<Vec<u32>>,
+    pub processed_image_tiles: Option<Vec<u32>>,
+    pub mosaic_generation_complete: bool,
 }
 
 impl MosaicTilingOption {
     pub fn new(num_tiles_x: u8, num_tiles_y: u8, crop_percentage: f64, cropped_width: u32, cropped_height: u32) -> Self {
+        // must be at least 1x1
+        let num_tiles_x = num_tiles_x.max(1);
+        let num_tiles_y = num_tiles_y.max(1);
+
         Self {
             num_tiles_x,
             num_tiles_y,
@@ -30,7 +39,43 @@ impl MosaicTilingOption {
             is_chosen: false,
             image_tiles: None,
             matched_tiles: None,
+            extracted_frames: None,
+            processed_image_tiles: None,
+            mosaic_generation_complete: false,
         }
+    }
+
+    pub fn total_tiles(&self) -> u32 {
+        self.num_tiles_x as u32 * self.num_tiles_y as u32
+    }
+
+    pub fn percentage_tile_matches(&self) -> f64 {
+        if let Some(matched_tiles) = &self.matched_tiles {
+            return (100.0 / self.total_tiles() as f64) * matched_tiles.len() as f64;
+        }
+        
+        0.0
+    }
+
+    pub fn percentage_frames_extracted(&self) -> f64 {
+        if let Some(extracted_frames) = &self.extracted_frames {
+            return (100.0 / self.total_tiles() as f64) * extracted_frames.len() as f64;
+        }
+
+        0.0
+    }
+
+    pub fn percentage_image_tiles_processed(&self) -> f64 {
+        if self.mosaic_generation_complete {
+            return 100.0;
+        }
+
+        if let Some(processed_image_tiles) = &self.processed_image_tiles {
+            let percentage = (100.0 / self.total_tiles() as f64) * processed_image_tiles.len() as f64;
+            return percentage.min(99.0);
+        }
+
+        0.0
     }
     
     pub fn tiling_candidates(

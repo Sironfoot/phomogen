@@ -1,13 +1,10 @@
 use std::{collections::HashMap, fs, sync::{Arc, atomic::{AtomicUsize, Ordering}, mpsc::{self, Receiver}}, thread::{self, JoinHandle}};
 
-use crate::{app::App, ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch}, tile_blender::TileBlender};
+use crate::{app::App, ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch}};
 
 use anyhow::Result;
-use image::{DynamicImage, GenericImage, ImageBuffer, ImageEncoder, Rgb, RgbImage, codecs::{jpeg::JpegEncoder, png::PngEncoder}, imageops};
+use image::{DynamicImage, ImageBuffer, Rgb, imageops};
 use image::imageops::FilterType;
-
-const LARGEST_PRINT_DIMENSION: u32 = 14000;
-const LARGEST_SOCIAL_DIMENSION: u32 = 7680;
 
 pub struct Response {
     pub num_tiles_x: u8,
@@ -61,9 +58,7 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
         .map(|v| v.metadata.clone())
         .collect::<Vec<_>>();
 
-    let mosaics_dir = app.mosaics_dir.clone();
     let database_dir = app.database_dir.clone();
-    let srgb_profile = app.get_srgb_profile();
     let (temp_tile_width, temp_tile_height) = select_tile_shape.get_temp_image_tile_dimensions();
 
     thread::spawn(move || {
@@ -73,16 +68,16 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
             fs::create_dir(&database_dir).unwrap();
         }
 
-        // create the temporary mosaic directory
-        let temp_mosaic_dir_name = format!("{image_filename}_temp");
-        let temp_mosaic_dir = database_dir.join(&temp_mosaic_dir_name);
+        for (num_tiles_x, num_tiles_y, _, _, matched_tiles) in chosen_tiling_options {
+            // create the temporary mosaic directory
+            let temp_mosaic_dir_name = format!("{image_filename}_temp_{num_tiles_x}x{num_tiles_y}");
+            let temp_mosaic_dir = database_dir.join(&temp_mosaic_dir_name);
 
-        let temp_mosaic_exists = fs::exists(&temp_mosaic_dir).unwrap_or(false);
-        if !temp_mosaic_exists {
-            fs::create_dir(&temp_mosaic_dir).unwrap();
-        }
+            let temp_mosaic_exists = fs::exists(&temp_mosaic_dir).unwrap_or(false);
+            if !temp_mosaic_exists {
+                fs::create_dir(&temp_mosaic_dir).unwrap();
+            }
 
-        for (num_tiles_x, num_tiles_y, width, height, matched_tiles) in chosen_tiling_options {
             let mut video_frame_matches: HashMap<&str, Vec<VideoFrameMatch>> = HashMap::new();
 
             // group into videos
@@ -125,14 +120,14 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
 
                 let (tx, rc) = mpsc::channel::<(u32, ImageBuffer<Rgb<u8>, Vec<u8>>)>();
 
-                for worker_index in 0..num_workers {
+                for _ in 0..num_workers {
                     let video_metadata = video.clone();
                     let frame_indices = Arc::clone(&frame_indices);
                     let next_index = Arc::clone(&next_index);
                     let tx = tx.clone();
                     
                     workers.push(thread::spawn(move || {
-                        let mut frame_extractor = FrameExtractor::new(worker_index as u32, video_metadata);
+                        let mut frame_extractor = FrameExtractor::new(video_metadata);
 
                         loop {
                             let index = next_index.fetch_add(1, Ordering::Relaxed);
@@ -199,111 +194,6 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
                     worker.join().unwrap();
                 }
             }
-
-            // join image
-            let is_landscape = width > height;
-            let ratio = width as f64 / height as f64;
-
-            let smallest_dimension = if is_landscape {
-                (LARGEST_PRINT_DIMENSION as f64 / ratio).round() as u32
-            }
-            else
-            {
-                (LARGEST_PRINT_DIMENSION as f64 * ratio).round() as u32
-            };
-
-            let target_width: u32 = if is_landscape { LARGEST_PRINT_DIMENSION } else { smallest_dimension };
-            let target_height: u32 = if is_landscape { smallest_dimension } else { LARGEST_PRINT_DIMENSION };
-
-            let tile_width = (target_width as f64 / num_tiles_x as f64).round() as u32;
-            let tile_height = (target_height as f64 / num_tiles_y as f64).round() as u32;
-
-            let final_width = tile_width * num_tiles_x as u32;
-            let final_height = tile_height * num_tiles_y as u32;
-            
-            let mut canvas: ImageBuffer<Rgb<u8>, Vec<u8>> = RgbImage::new(final_width, final_height);
-
-            for frame_match in &matched_tiles {
-                let row = frame_match.tile_index / num_tiles_x as u32;
-                let col = frame_match.tile_index % num_tiles_x as u32;
-
-                let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-                let tile_image = image::open(tile_path).unwrap();
-                let mut image = tile_image.into_rgb8();
-
-                let tile_blender = TileBlender::new(row, col, num_tiles_x as u32, num_tiles_y as u32);
-
-                let top_image = tile_blender.find_top().map(|(row, col)| {
-                    let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-                    image::open(tile_path).unwrap().into_rgb8()
-                });
-
-                let right_image = tile_blender.find_right().map(|(row, col)| {
-                    let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-                    image::open(tile_path).unwrap().into_rgb8()
-                });
-
-                let bottom_image = tile_blender.find_bottom().map(|(row, col)| {
-                    let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-                    image::open(tile_path).unwrap().into_rgb8()
-                });
-
-                let left_image = tile_blender.find_left().map(|(row, col)| {
-                    let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
-                    image::open(tile_path).unwrap().into_rgb8()
-                });
-
-                tile_blender.blend_image(&mut image, top_image.as_ref(), right_image.as_ref(), bottom_image.as_ref(), left_image.as_ref()).unwrap();
-
-                let resized = imageops::resize(
-                    &image, tile_width, tile_height, FilterType::Lanczos3);
-
-                canvas.copy_from(&resized, col * tile_width, row * tile_height).unwrap();
-            }
-
-            // create print quality version
-            let mosaic_image_name = format!("{image_filename}_{num_tiles_x}x{num_tiles_y}.png");
-            let image_path = mosaics_dir.join(&mosaic_image_name);
-
-            let file_write = fs::File::create_new(&image_path).unwrap();
-
-            let mut encoder = PngEncoder::new(file_write);
-            encoder.set_icc_profile(srgb_profile.clone()).unwrap();
-            encoder.write_image(
-                canvas.as_raw(),
-                canvas.width(),
-                canvas.height(),
-                image::ExtendedColorType::Rgb8
-            ).unwrap();
-
-            // create smaller version for social media etc.
-            let mosaic_image_name = format!("{image_filename}_{num_tiles_x}x{num_tiles_y}.jpeg");
-            let image_path = mosaics_dir.join(&mosaic_image_name);
-
-            let file_write = fs::File::create_new(&image_path).unwrap();
-            let mut encoder = JpegEncoder::new_with_quality(file_write, 99);
-            encoder.set_icc_profile(srgb_profile.clone()).unwrap();
-
-            let smallest_social_dimension = if is_landscape {
-                (LARGEST_SOCIAL_DIMENSION as f64 / ratio).round() as u32
-            }
-            else
-            {
-                (LARGEST_SOCIAL_DIMENSION as f64 * ratio).round() as u32
-            };
-
-            let jpeg_width: u32 = if is_landscape { LARGEST_SOCIAL_DIMENSION } else { smallest_social_dimension }; // 14000
-            let jpeg_height: u32 = if is_landscape { smallest_social_dimension } else { LARGEST_SOCIAL_DIMENSION }; // 7876
-
-            let jpeg_canvas = imageops::resize(&canvas, jpeg_width, jpeg_height, FilterType::Lanczos3);
-            encoder.write_image(
-                jpeg_canvas.as_raw(),
-                jpeg_canvas.width(),
-                jpeg_canvas.height(),
-                image::ExtendedColorType::Rgb8
-            ).unwrap();
-
-            fs::remove_dir_all(&temp_mosaic_dir).unwrap();
         }
     });
 

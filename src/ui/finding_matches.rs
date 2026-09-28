@@ -2,12 +2,12 @@ use std::time::Duration;
 
 use ratatui::{
     Frame, layout::{
-        HorizontalAlignment, Constraint, Direction, Layout, Rect, Size
+        Constraint, Direction, HorizontalAlignment, Layout, Rect, Size
     }, style::{
         Color,
         Modifier,
         Style
-    }, text::{Text}, widgets::{
+    }, text::{Line, Span, Text}, widgets::{
         Block,
         BorderType,
         Borders,
@@ -19,15 +19,15 @@ use ratatui::{
 };
 use ratatui_image::{FilterType, Image, Resize, picker::Picker};
 
-use crate::app::{App, AppStage};
+use crate::app::{App, GenerateMosaicSubStage};
 
 const MAX_IMAGE_HEIGHT: u16 = 30;
 
-pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
+pub fn render(frame: &mut Frame, main: Rect, sub_stage: GenerateMosaicSubStage, app: &mut App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title("  Image > Options > Videos > Finding Matches  ")
+        .title("  Image > Options > Videos > Generate Mosaic  ")
         .padding(Padding::uniform(1))
         .style(Style::default());
 
@@ -59,6 +59,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
     let [
         header_section,
         image_preview_section,
+        sub_stage_section,
         progress_section,
         total_progress_section,
         timer_section,
@@ -68,6 +69,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
         .constraints([
             Constraint::Length(1),
             Constraint::Length(max_image_container_height),
+            Constraint::Length(2),
             Constraint::Length(num_options),
             Constraint::Length(3),
             Constraint::Length(2),
@@ -78,7 +80,7 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
 
     // title
     let title = Paragraph::new(
-        Text::styled("Finding Frame Matches", Style::default().bg(Color::Red))
+        Text::styled("Generate Mosaic", Style::default().bg(Color::Red))
     )
     .wrap(Wrap::default())
     .alignment(ratatui::layout::HorizontalAlignment::Center);
@@ -128,10 +130,35 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
 
     frame.render_widget(image_widget, image_area);
 
+    // Sub stage section
+    let stage_num = match sub_stage {
+        GenerateMosaicSubStage::FindingMatches => 1,
+        GenerateMosaicSubStage::ExtracingFrames => 2,
+        GenerateMosaicSubStage::GeneratingImage => 3,
+        GenerateMosaicSubStage::Complete => 4,
+    };
+
+    let active_style = Style::default().add_modifier(Modifier::BOLD);
+    let inactive_style = Style::default().add_modifier(Modifier::DIM);
+
+    let sub_stage_paragraph = Paragraph::new(Line::from(vec![
+        Span::from(format!("Stage {stage_num}: ")),
+        Span::styled("Find Matches", if stage_num == 1 { active_style } else { inactive_style }),
+        Span::from(" * "),
+        Span::styled("Extract Frames", if stage_num == 2 { active_style } else { inactive_style }),
+        Span::from(" * "),
+        Span::styled("Create Mosaic", if stage_num == 3 { active_style } else { inactive_style }),
+        Span::from(" * "),
+        Span::styled("Complete", if stage_num == 4 { active_style } else { inactive_style }),
+    ]))
+    .alignment(HorizontalAlignment::Center);
+
+    frame.render_widget(sub_stage_paragraph, sub_stage_section);
+
+    // progress section
     let mut total_mosaic_tiles: u32 = 0;
     let mut total_tiles_complete: u32 = 0;
 
-    // progress section
     let progress_layouts = Layout::default()
         .direction(Direction::Vertical)
         .constraints(selected_tiling_options.iter().map(|_| Constraint::Length(1)))
@@ -139,14 +166,41 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
         .split(progress_section);
 
     for (i, tiling_option) in selected_tiling_options.iter().enumerate() {
-        let num_mosaic_tiles = tiling_option.num_tiles_x as u32 * tiling_option.num_tiles_y as u32;
-        let num_tiles_complete = tiling_option.matched_tiles.as_ref()
+        let num_mosaic_tiles = tiling_option.total_tiles();
+        let num_tiles_complete = match sub_stage {
+            GenerateMosaicSubStage::FindingMatches => {
+                tiling_option.matched_tiles.as_ref()
+                    .map_or(0, |t| t.len()) as u32
+            },
+            GenerateMosaicSubStage::ExtracingFrames => {
+                tiling_option.extracted_frames.as_ref()
+                    .map_or(0, |t| t.len()) as u32
+            },
+            GenerateMosaicSubStage::GeneratingImage => {
+                tiling_option.processed_image_tiles.as_ref()
+                    .map_or(0, |t| t.len()) as u32
+            },
+            GenerateMosaicSubStage::Complete => num_mosaic_tiles
+        };
+        
+        tiling_option.matched_tiles.as_ref()
             .map_or(0, |t| t.len()) as u32;
 
         total_mosaic_tiles += num_mosaic_tiles;
         total_tiles_complete += num_tiles_complete;
 
-        let percentage = (100.0 / num_mosaic_tiles as f64) * num_tiles_complete as f64;
+        let percentage = match sub_stage{
+            GenerateMosaicSubStage::FindingMatches => {
+                tiling_option.percentage_tile_matches()
+            },
+            GenerateMosaicSubStage::ExtracingFrames => {
+                tiling_option.percentage_frames_extracted()
+            },
+            GenerateMosaicSubStage::GeneratingImage => {
+                tiling_option.percentage_image_tiles_processed()
+            },
+            GenerateMosaicSubStage::Complete => 100.0
+        };
 
         let label = format!("{:>2} x {:<2} - Tiles: {num_tiles_complete:>4} / {num_mosaic_tiles:<4} - {:>3.0}%",
             tiling_option.num_tiles_x, tiling_option.num_tiles_y, percentage);
@@ -162,7 +216,16 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
     }
 
     // total progress section
-    let total_percentage = (100.0 / total_mosaic_tiles as f64) * total_tiles_complete as f64;
+    let mut total_percentage = (100.0 / total_mosaic_tiles as f64) * total_tiles_complete as f64;
+
+    if sub_stage == GenerateMosaicSubStage::GeneratingImage {
+        let all_finished = selected_tiling_options.iter()
+            .all(|t| t.mosaic_generation_complete);
+
+        if !all_finished {
+            total_percentage = total_percentage.min(99.0);
+        }
+    }
 
     let total_progress_guage = Gauge::default()
         .style(Modifier::BOLD)
@@ -184,8 +247,8 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
 
     frame.render_widget(timer, timer_section);
 
-    // continue or wait section
-    if app.stage == AppStage::FindingMatches {
+    // continue section
+    if sub_stage != GenerateMosaicSubStage::Complete {
         let wait_text = Paragraph::new(
             Text::styled("Please wait...", Style::default().fg(Color::Green))
         )
@@ -195,15 +258,13 @@ pub fn render(frame: &mut Frame, main: Rect, app: &mut App) {
         frame.render_widget(wait_text, continue_section);
     }
     else {
-        let text = "Finished! Press (Enter) to continue.\nPress (Backspace) to go back.";
-
-        let continue_text = Paragraph::new(
-            Text::styled(text, Style::default().fg(Color::Green))
+        let wait_text = Paragraph::new(
+            Text::styled("Finished!\nPress space to continue...", Style::default().fg(Color::Green))
         )
         .wrap(Wrap::default())
-        .alignment(HorizontalAlignment::Center);
+        .alignment(ratatui::layout::HorizontalAlignment::Center);
 
-        frame.render_widget(continue_text, continue_section);
+        frame.render_widget(wait_text, continue_section);
     }
 }
 
