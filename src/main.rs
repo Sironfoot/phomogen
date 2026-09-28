@@ -27,7 +27,7 @@ use anyhow::Result;
 use crate::app::{App, AppStage, GenerateMosaicSubStage, ImageFile, SystemInfo, TileShape, VideoIndexStatus, VideoIndexingReport};
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm};
 use crate::ffmpeg::crops::CropLevel;
-use crate::tasks::generate_image;
+use crate::tasks::mosaic_build_image;
 use crate::ui::render_ui;
 use crate::images::PreviewImage;
 
@@ -38,8 +38,8 @@ use crate::tasks::{
     load_databases,
     load_databases::LoadDatabaseProgressReport,
     calculate_image_colors,
-    find_matches,
-    generate_mosaic
+    mosaic_find_matches,
+    mosaic_generate
 };
 
 fn main() -> Result<()> {
@@ -107,9 +107,9 @@ where
     let mut videos_receiver: Option<Receiver<Vec<app::VideoFile>>> = None;
     let mut color_extractor_receiver: Option<Receiver<VideoIndexingReport>> = None;
     let mut load_database_receiver: Option<Receiver<LoadDatabaseProgressReport>> = None;
-    let mut find_matches_receiver: Option<Receiver<find_matches::Response>> = None;
-    let mut generate_mosaic_receiver: Option<Receiver<generate_mosaic::Response>> = None;
-    let mut generate_image_receiver: Option<Receiver<generate_image::Response>> = None;
+    let mut find_matches_receiver: Option<Receiver<mosaic_find_matches::Response>> = None;
+    let mut generate_mosaic_receiver: Option<Receiver<mosaic_generate::Response>> = None;
+    let mut generate_image_receiver: Option<Receiver<mosaic_build_image::Response>> = None;
 
     let mut should_render = true;
 
@@ -291,11 +291,11 @@ where
                     GenerateMosaicSubStage::FindingMatches => {
                         if find_matches_receiver.is_none() {
                             app.reset_timer();
-                            find_matches_receiver = Some(find_matches::run(app).unwrap());
+                            find_matches_receiver = Some(mosaic_find_matches::run(app).unwrap());
                         }
 
                         if let Some(rc) = &find_matches_receiver {
-                            let responses: Vec<find_matches::Response> = rc.try_iter().collect();
+                            let responses: Vec<mosaic_find_matches::Response> = rc.try_iter().collect();
 
                             if responses.len() > 0 {
                                 let chosen_image = app.images.iter_mut()
@@ -358,11 +358,11 @@ where
                     },
                     GenerateMosaicSubStage::ExtracingFrames => {
                         if generate_mosaic_receiver.is_none() {
-                            generate_mosaic_receiver = Some(generate_mosaic::run(app).expect("Error"));
+                            generate_mosaic_receiver = Some(mosaic_generate::run(app).expect("Error"));
                         }
 
                         if let Some(rc) = &generate_mosaic_receiver {
-                            let responses: Vec<generate_mosaic::Response> = rc.try_iter().collect();
+                            let responses: Vec<mosaic_generate::Response> = rc.try_iter().collect();
 
                             if responses.len() > 0 {
                                 let chosen_image = app.images.iter_mut()
@@ -424,11 +424,11 @@ where
                     },
                     GenerateMosaicSubStage::GeneratingImage => {
                         if generate_image_receiver.is_none() {
-                            generate_image_receiver = Some(generate_image::run(app).expect("Error"));
+                            generate_image_receiver = Some(mosaic_build_image::run(app).expect("Error"));
                         }
 
                         if let Some(rc) = &generate_image_receiver {
-                            let responses: Vec<generate_image::Response> = rc.try_iter().collect();
+                            let responses: Vec<mosaic_build_image::Response> = rc.try_iter().collect();
 
                             if responses.len() > 0 {
                                 let chosen_image = app.images.iter_mut()
