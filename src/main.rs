@@ -247,10 +247,6 @@ where
                     if requires_loading {
                         load_database_receiver = Some(load_databases::run(&app));
                     }
-                    else {
-                        app.stage = AppStage::ImageSelect;
-                        should_render = true;
-                    }
                 }
 
                 if let Some(rc) = &load_database_receiver {
