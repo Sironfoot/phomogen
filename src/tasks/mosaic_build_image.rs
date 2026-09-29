@@ -4,7 +4,7 @@ use anyhow::Result;
 use image::{GenericImage, ImageBuffer, ImageEncoder, Rgb, RgbImage, codecs::{jpeg::JpegEncoder, png::PngEncoder}, imageops};
 use image::imageops::FilterType;
 
-use crate::{app::App, tile_blender::TileBlender};
+use crate::{app::{App, MosaicTilingOption}, tile_blender::TileBlender};
 
 const LARGEST_PRINT_DIMENSION: u32 = 14000;
 const LARGEST_SOCIAL_DIMENSION: u32 = 7680;
@@ -84,8 +84,7 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
             let mut canvas: ImageBuffer<Rgb<u8>, Vec<u8>> = RgbImage::new(final_width, final_height);
 
             for frame_match in &matched_tiles {
-                let row = frame_match.tile_index / num_tiles_x as u32;
-                let col = frame_match.tile_index % num_tiles_x as u32;
+                let (row, col) = MosaicTilingOption::row_col_by_index(num_tiles_x, frame_match.tile_index);
 
                 let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
                 let tile_image = image::open(tile_path).unwrap();

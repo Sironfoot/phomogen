@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs, io::{BufWriter, Write}, sync::{Arc, atomic::{AtomicUsize, Ordering}, mpsc::{self, Receiver}}, thread::{self, JoinHandle}};
 
-use crate::{app::App, ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch}};
+use crate::{app::{App, MosaicTilingOption}, ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch}};
 
 use anyhow::Result;
 use image::{DynamicImage, ImageBuffer, ImageEncoder, Rgb, codecs::png::PngEncoder, imageops};
@@ -172,9 +172,7 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
                         data: DynamicImage::ImageRgb8(crop),
                     };
 
-                    let row = tile.tile_index / num_tiles_x as u32;
-                    let col = tile.tile_index % num_tiles_x as u32;
-
+                    let (row, col) = MosaicTilingOption::row_col_by_index(num_tiles_x, tile.tile_index);
                     let tile_path = temp_mosaic_dir.join(format!("{row}x{col}.png"));
 
                     let file_write = fs::File::create_new(&tile_path).unwrap();

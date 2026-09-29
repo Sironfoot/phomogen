@@ -49,6 +49,17 @@ impl MosaicTilingOption {
         self.num_tiles_x as u32 * self.num_tiles_y as u32
     }
 
+    pub fn row_col_from_index(&self, tile_index: u32) -> (u32, u32) {
+        MosaicTilingOption::row_col_by_index(self.num_tiles_x, tile_index)
+    }
+
+    pub fn row_col_by_index(num_tiles_x: u8, tile_index: u32) -> (u32, u32) {
+        let row = tile_index / num_tiles_x as u32;
+        let col = tile_index % num_tiles_x as u32;
+
+        (row, col)
+    }
+
     pub fn percentage_tile_matches(&self) -> f64 {
         if let Some(matched_tiles) = &self.matched_tiles {
             return (100.0 / self.total_tiles() as f64) * matched_tiles.len() as f64;

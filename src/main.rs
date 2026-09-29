@@ -331,11 +331,9 @@ where
                                                 if let Some(matched_tiles) = tiling_option.matched_tiles.as_mut() {
                                                     matched_tiles.push(frame_match);
                                                 }
-
-                                                let row = tile_index / tiling_option.num_tiles_x as u32;
-                                                let col = tile_index % tiling_option.num_tiles_y as u32;
-
+                                                
                                                 if let Some(preview_image) = chosen_image.preview.as_mut() {
+                                                    let (row, col) = tiling_option.row_col_from_index(tile_index);
                                                     preview_image.add_progress_tile(col, row);
                                                 }
                                             }
@@ -398,10 +396,8 @@ where
                                                     extracted_frames.push(tile_index);
                                                 }
 
-                                                let row = tile_index / tiling_option.num_tiles_x as u32;
-                                                let col = tile_index % tiling_option.num_tiles_y as u32;
-
                                                 if let Some(preview_image) = chosen_image.preview.as_mut() {
+                                                    let (row, col) = tiling_option.row_col_from_index(tile_index);
                                                     preview_image.add_progress_tile(col, row);
                                                 }
                                             }
@@ -463,10 +459,8 @@ where
                                                         processed_image_tiles.push(tile_index);
                                                     }
 
-                                                    let row = tile_index / tiling_option.num_tiles_x as u32;
-                                                    let col = tile_index % tiling_option.num_tiles_y as u32;
-
                                                     if let Some(preview_image) = chosen_image.preview.as_mut() {
+                                                        let (row, col) = tiling_option.row_col_from_index(tile_index);
                                                         preview_image.add_progress_tile(col, row);
                                                     }
                                                 }
