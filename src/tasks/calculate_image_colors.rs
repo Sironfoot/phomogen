@@ -1,4 +1,4 @@
-use std::{cmp, sync::mpsc::{self, Receiver}, thread};
+use std::{sync::mpsc::{self, Receiver}, thread};
 
 use image::{GenericImageView, imageops};
 use image::imageops::FilterType;
@@ -74,11 +74,6 @@ pub fn run(app: &App) -> Receiver<Response> {
             let image_data = imageops::resize(
                 &image_data, resize_width, resize_height, FilterType::Lanczos3);
 
-            let color_tile_width = f64::round(mosaic_tile_width as f64 / color_tiles_x as f64) as u32;
-            let color_tile_height = f64::round(mosaic_tile_height as f64 / color_tiles_y as f64) as u32;
-
-            let total_sub_tile_pixels = color_tile_width * color_tile_height;
-
             for tile_y in 0..num_tiles_y {
                 for tile_x in 0..num_tiles_x {
                     let start_x = tile_x * mosaic_tile_width;
@@ -92,11 +87,15 @@ pub fn run(app: &App) -> Receiver<Response> {
                     
                     for sub_tile_y in 0..color_tiles_y {
                         for sub_tile_x in 0..color_tiles_x {
-                            let start_x = sub_tile_x * color_tile_width;
-                            let end_x = cmp::min(start_x + color_tile_width, mosaic_tile_width);
+                            let start_x = sub_tile_x * mosaic_tile_width / color_tiles_x;
+                            let end_x = (sub_tile_x + 1) * mosaic_tile_width / color_tiles_x;
+                            let sub_tile_width = end_x - start_x;
+                            
+                            let start_y = sub_tile_y * mosaic_tile_height / color_tiles_y;
+                            let end_y = (sub_tile_y + 1) * mosaic_tile_height / color_tiles_y;
+                            let sub_tile_height = end_y - start_y;
 
-                            let start_y = sub_tile_y * color_tile_height;
-                            let end_y = cmp::min(start_y + color_tile_height, mosaic_tile_height);
+                            let total_sub_tile_pixels = sub_tile_width * sub_tile_height;
 
                             let mut total_red: u64 = 0;
                             let mut total_green: u64 = 0;

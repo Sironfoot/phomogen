@@ -1,9 +1,5 @@
-use std::{cmp};
 use anyhow::Result;
-
 use crate::ffmpeg::AspectRatio;
-
-const RATIO_16_9 : f64 = 16.0 / 9.0;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,24 +42,24 @@ pub struct CropTile {
 
 impl CropSetting {
     fn new(resize: f64, pos_x: f64, pos_y: f64, crop_level: CropLevel, frame_width: u32, frame_height: u32, color_tiles_x: u32, color_tiles_y: u32) -> Self {
-        let cropped_width = f64::round((frame_width as f64 / 100.0) * resize) as u32;
-        let cropped_height = f64::round(cropped_width as f64 / RATIO_16_9) as u32;
-
         let crop_start_x = f64::round((frame_width as f64 / 100.0) * pos_x) as u32;
         let crop_start_y = f64::round((frame_height as f64 / 100.0) * pos_y) as u32;
+        
+        let cropped_width = f64::round((frame_width as f64 / 100.0) * resize) as u32;
+        let cropped_width = cropped_width.min(frame_width - crop_start_x);
 
-        let cropped_grid_width = f64::round(cropped_width as f64 / color_tiles_x as f64) as u32;
-        let cropped_grid_height = f64::round(cropped_height as f64 / color_tiles_y as f64) as u32;
+        let cropped_height = f64::round((frame_height as f64 / 100.0) * resize) as u32;
+        let cropped_height = cropped_height.min(frame_height - crop_start_y);
 
         let mut tiles: Vec<CropTile> = Vec::with_capacity((color_tiles_x * color_tiles_y) as usize);
 
         for grid_y in 0..color_tiles_y {
             for grid_x in 0..color_tiles_x {
-                let start_x = crop_start_x + (cropped_grid_width * grid_x);
-                let end_x = cmp::min(start_x + cropped_grid_width, frame_width);
+                let start_x = crop_start_x + (grid_x * cropped_width / color_tiles_x);
+                let end_x = crop_start_x + ((grid_x + 1) * cropped_width / color_tiles_x);
 
-                let start_y = crop_start_y + (cropped_grid_height * grid_y);
-                let end_y = cmp::min(start_y + cropped_grid_height, frame_height);
+                let start_y = crop_start_y + (grid_y * cropped_height / color_tiles_y);
+                let end_y = crop_start_y + ((grid_y + 1) * cropped_height / color_tiles_y);
 
                 let tile_width = end_x - start_x;
                 let tile_height = end_y - start_y;
