@@ -29,9 +29,7 @@ impl ColorMatcher {
         Self {
             mosaic_tiles_x,
             mosaic_tiles_y,
-            //algorithm: ColorMatcherAlgorithm::RgbWeighted { red_bias: 3, green_bias: 6, blue_bias: 1 },
-            //algorithm: ColorMatcherAlgorithm::Oklab,
-            algorithm: ColorMatcherAlgorithm::OklabWeighted { lightness_weight: 1.0, chroma_weight: 2.0 },
+            algorithm: ColorMatcherAlgorithm::Oklab,
             num_workers: 1,
             allowed_crops: allowed_crops.to_vec(),
             databases: HashMap::new(),

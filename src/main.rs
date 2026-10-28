@@ -25,6 +25,7 @@ use ratatui::crossterm::terminal::{
 use anyhow::Result;
 
 use crate::app::{App, AppStage, GenerateMosaicSubStage, ImageFile, SystemInfo, TileShape, VideoIndexStatus, VideoIndexingReport};
+use crate::color_matcher::ColorMatcherAlgorithm;
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm};
 use crate::ffmpeg::crops::CropLevel;
 use crate::tasks::mosaic_build_image;
@@ -48,6 +49,8 @@ fn main() -> Result<()> {
     const TEST_COLOR_TILES: u32 = 8;
     const DISABLE_AGGRESIVE_CROPS: bool = false;
     const DISABLE_ALL_CROPS: bool = false;
+    const FRAME_MATCHER_ALGORITHM: ColorMatcherAlgorithm = 
+        ColorMatcherAlgorithm::RgbWeighted { red_bias: 3, green_bias: 6, blue_bias: 1 };
 
     let wk_dir = TEST_DIR;
     let num_color_tiles = TEST_COLOR_TILES;
@@ -75,6 +78,7 @@ fn main() -> Result<()> {
     let mut app = App::new(&working_dir, sys_info, srgb_profile.to_vec());
     app.set_color_tiles(num_color_tiles, num_color_tiles);
     app.color_extraction_algorithm = ColorExtractionAlgorithm::SummedAreaTable;
+    app.frame_matcher_algorithm = FRAME_MATCHER_ALGORITHM;
 
     if DISABLE_AGGRESIVE_CROPS {
         app.disallow_crop_level(CropLevel::Aggressive);

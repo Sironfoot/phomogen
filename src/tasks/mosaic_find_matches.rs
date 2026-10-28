@@ -53,6 +53,7 @@ pub fn run(app: &mut App) -> Result<Receiver<Response>> {
 
     let allowed_crops = app.allowed_crops().to_vec();
     let max_cores = app.system_info.max_allowed_cores();
+    let matcher_algorithm = app.frame_matcher_algorithm.clone();
 
     thread::spawn(move || {
         for (num_tiles_x, num_tiles_y, image_tiles) in chosen_tiling_options {
@@ -62,6 +63,7 @@ pub fn run(app: &mut App) -> Result<Receiver<Response>> {
                 &allowed_crops);
 
             matcher.set_thread_count(max_cores);
+            matcher.set_algorithm(matcher_algorithm.clone());
 
             for (filename, database) in &videos {
                 matcher.add_database(filename, database);
