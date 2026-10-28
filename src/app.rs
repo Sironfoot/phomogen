@@ -1,4 +1,5 @@
 mod app_stage;
+mod frame_crop;
 pub mod frame_data;
 mod image_file;
 mod mosaic_tiling_option;
@@ -6,20 +7,23 @@ mod print_sizes;
 mod system_info;
 mod terminal_theme;
 mod tile_shape;
+mod video_color_index_database;
 mod video_file;
 mod video_indexing_report;
 
 pub use app_stage::{AppStage, GenerateMosaicSubStage};
+pub use frame_crop::FrameCrop;
 pub use image_file::{ImageFile, ImageType};
 pub use mosaic_tiling_option::{MosaicTilingOption, MAX_TILES_PER_AXIS};
 pub use print_sizes::PrintSize;
 pub use system_info::SystemInfo;
 pub use terminal_theme::{TerminalTheme, TerminalThemeMode};
 pub use tile_shape::TileShape;
+pub use video_color_index_database::VideoColorIndexDatabase;
 pub use video_file::VideoFile;
 pub use video_indexing_report::{VideoIndexCore, VideoIndexingReport, VideoIndexStatus};
 
-use crate::{app::frame_data::Color, color_matcher::ColorMatcherAlgorithm, ffmpeg::{color_extractor::ColorExtractionAlgorithm, crops::CropLevel}};
+use crate::{ffmpeg::{color_extractor::ColorExtractionAlgorithm, crops::CropLevel}, frame_matcher::{Color, FrameMatcherAlgorithm}};
 
 use std::{ops::Add, path::{Path, PathBuf}, time::{Duration, Instant}};
 
@@ -46,7 +50,7 @@ pub struct App {
     pub current_video_index: u32,
     pub videos: Vec<VideoFile>,
     pub color_extraction_algorithm: ColorExtractionAlgorithm,
-    pub frame_matcher_algorithm: ColorMatcherAlgorithm,
+    pub frame_matcher_algorithm: FrameMatcherAlgorithm,
 
     pub current_image_index: u32,
     pub images: Vec<ImageFile>,
@@ -103,7 +107,7 @@ impl App {
             current_video_index: 0,
             videos: vec![],
             color_extraction_algorithm: ColorExtractionAlgorithm::PixelArrayTraversal,
-            frame_matcher_algorithm: ColorMatcherAlgorithm::Rgb,
+            frame_matcher_algorithm: FrameMatcherAlgorithm::Rgb,
             current_image_index: 0,
             images: vec![],
             terminal_palette,

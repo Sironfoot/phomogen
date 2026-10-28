@@ -1,6 +1,6 @@
 use std::{sync::Arc};
 
-use crate::{app::{PrintSize, TileShape}, color_matcher::{FrameMatch, ImageTile}};
+use crate::{app::{PrintSize, TileShape}, frame_matcher::{FrameMatch, ImageTile}};
 
 pub const MAX_TILES_PER_AXIS: u8 = 80;
 

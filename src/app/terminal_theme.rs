@@ -1,4 +1,4 @@
-use crate::app::frame_data::Color;
+use crate::frame_matcher::Color;
 
 pub struct TerminalTheme {
     pub mode: TerminalThemeMode,

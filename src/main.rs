@@ -1,7 +1,7 @@
 pub mod app;
 pub mod ui;
 pub mod ffmpeg;
-pub mod color_matcher;
+pub mod frame_matcher;
 pub mod tile_blender;
 pub mod images;
 pub mod tasks;
@@ -25,7 +25,7 @@ use ratatui::crossterm::terminal::{
 use anyhow::Result;
 
 use crate::app::{App, AppStage, GenerateMosaicSubStage, ImageFile, SystemInfo, TileShape, VideoIndexStatus, VideoIndexingReport};
-use crate::color_matcher::ColorMatcherAlgorithm;
+use crate::frame_matcher::FrameMatcherAlgorithm;
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm};
 use crate::ffmpeg::crops::CropLevel;
 use crate::tasks::mosaic_build_image;
@@ -49,8 +49,8 @@ fn main() -> Result<()> {
     const TEST_COLOR_TILES: u32 = 8;
     const DISABLE_AGGRESIVE_CROPS: bool = false;
     const DISABLE_ALL_CROPS: bool = false;
-    const FRAME_MATCHER_ALGORITHM: ColorMatcherAlgorithm = 
-        ColorMatcherAlgorithm::RgbWeighted { red_bias: 3, green_bias: 6, blue_bias: 1 };
+    const FRAME_MATCHER_ALGORITHM: FrameMatcherAlgorithm = 
+        FrameMatcherAlgorithm::RgbWeighted { red_bias: 3, green_bias: 6, blue_bias: 1 };
 
     let wk_dir = TEST_DIR;
     let num_color_tiles = TEST_COLOR_TILES;

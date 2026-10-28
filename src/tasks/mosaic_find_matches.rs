@@ -2,7 +2,7 @@ use std::{sync::{Arc, mpsc::{self, Receiver}}, thread};
 
 use anyhow::Result;
 
-use crate::{app::App, color_matcher::{ColorMatcher, FrameMatch}};
+use crate::{app::App, frame_matcher::{FrameMatcher, FrameMatch}};
 
 pub struct Response {
     pub num_tiles_x: u8,
@@ -57,7 +57,7 @@ pub fn run(app: &mut App) -> Result<Receiver<Response>> {
 
     thread::spawn(move || {
         for (num_tiles_x, num_tiles_y, image_tiles) in chosen_tiling_options {
-            let mut matcher = ColorMatcher::new(
+            let mut matcher = FrameMatcher::new(
                 num_tiles_x as u32,
                 num_tiles_y as u32,
                 &allowed_crops);

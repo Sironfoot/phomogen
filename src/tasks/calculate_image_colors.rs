@@ -3,7 +3,7 @@ use std::{sync::mpsc::{self, Receiver}, thread};
 use image::{GenericImageView, imageops};
 use image::imageops::FilterType;
 
-use crate::{app::{App, frame_data::{Color, OklabColor}}, color_matcher::ImageTile};
+use crate::{app::App, frame_matcher::{Color, ImageTile, OklabColor}};
 
 const LARGEST_DIMENSION: u32 = 10000;
 

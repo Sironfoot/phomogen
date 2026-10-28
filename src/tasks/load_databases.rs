@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::File, io::{self, BufRead}, sync::mpsc::{self, Receiver}, thread};
 
-use crate::{app::{App, frame_data::{Color, FrameCrop, FrameData, OklabColor, VideoColorIndexDatabase}}, ffmpeg::crops::CropLevel};
+use crate::{app::{App, FrameCrop, VideoColorIndexDatabase, frame_data::FrameData}, ffmpeg::crops::CropLevel, frame_matcher::{Color, OklabColor}};
 
 pub struct LoadDatabaseProgressReport {
     pub video_file_name: String,

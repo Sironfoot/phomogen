@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use crate::{app::{VideoIndexingReport, frame_data::VideoColorIndexDatabase}, ffmpeg::VideoMetadata};
+use crate::{app::{VideoColorIndexDatabase, VideoIndexingReport}, ffmpeg::VideoMetadata};
 
 pub struct VideoFile {
     pub metadata: VideoMetadata,

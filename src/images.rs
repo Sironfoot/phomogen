@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use image::{DynamicImage, GenericImage, GenericImageView, imageops};
 
-use crate::app::frame_data::Color;
+use crate::frame_matcher::Color;
 
 const PREVIEW_IMAGE_MAX_SIZE: u32 = 320;
 const PROGRESS_IMAGE_MAX_SIZE: u32 = 640;
