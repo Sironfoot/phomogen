@@ -3,7 +3,7 @@ use std::{sync::mpsc::{self, Receiver}, thread};
 use image::{GenericImageView, imageops};
 use image::imageops::FilterType;
 
-use crate::{app::{App, frame_data::Color}, color_matcher::ImageTile};
+use crate::{app::{App, frame_data::{Color, OklabColor}}, color_matcher::ImageTile};
 
 const LARGEST_DIMENSION: u32 = 10000;
 
@@ -82,7 +82,8 @@ pub fn run(app: &App) -> Receiver<Response> {
                     let sub_image = image_data.view(start_x, start_y, mosaic_tile_width, mosaic_tile_height);
 
                     let mut tile_data = ImageTile {
-                        colors: vec![]
+                        colors: vec![],
+                        oklab_colors: vec![],
                     };
                     
                     for sub_tile_y in 0..color_tiles_y {
@@ -116,11 +117,16 @@ pub fn run(app: &App) -> Receiver<Response> {
                             let average_green = f64::round(total_green as f64 / total_sub_tile_pixels as f64) as u64;
                             let average_blue = f64::round(total_blue as f64 / total_sub_tile_pixels as f64) as u64;
 
-                            tile_data.colors.push(Color {
+                            let color = Color {
                                 r: average_red as u8,
                                 g: average_green as u8,
                                 b: average_blue as u8,
-                            });
+                            };
+
+                            let oklab_color = OklabColor::from_color(&color);
+
+                            tile_data.colors.push(color);
+                            tile_data.oklab_colors.push(oklab_color);
                         }
                     }
 
