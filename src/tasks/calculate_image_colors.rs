@@ -3,7 +3,7 @@ use std::{sync::mpsc::{self, Receiver}, thread};
 use image::{GenericImageView, imageops};
 use image::imageops::FilterType;
 
-use crate::{app::App, frame_matcher::{Color, ImageTile, OklabColor}};
+use crate::{app::App, frame_matcher::{Color, ImageTile}};
 
 const LARGEST_DIMENSION: u32 = 10000;
 
@@ -123,10 +123,10 @@ pub fn run(app: &App) -> Receiver<Response> {
                                 b: average_blue as u8,
                             };
 
-                            let oklab_color = OklabColor::from_color(&color);
+                            //let oklab_color = OklabColor::from_color(&color);
 
                             tile_data.colors.push(color);
-                            tile_data.oklab_colors.push(oklab_color);
+                            //tile_data.oklab_colors.push(oklab_color);
                         }
                     }
 

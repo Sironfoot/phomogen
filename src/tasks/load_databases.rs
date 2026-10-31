@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::File, io::{self, BufRead}, sync::mpsc::{self, Receiver}, thread};
 
-use crate::{app::{App, FrameCrop, VideoColorIndexDatabase, frame_data::FrameData}, ffmpeg::crops::CropLevel, frame_matcher::{Color, OklabColor}};
+use crate::{app::{App, FrameCrop, VideoColorIndexDatabase, frame_data::FrameData}, ffmpeg::crops::CropLevel, frame_matcher::{Color}};
 
 pub struct LoadDatabaseProgressReport {
     pub video_file_name: String,
@@ -114,7 +114,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                 };
 
                 let mut colors: Vec<Color> = Vec::with_capacity(total_colors);
-                let mut oklab_colors: Vec<OklabColor> = Vec::with_capacity(total_colors);
+                //let mut oklab_colors: Vec<OklabColor> = Vec::with_capacity(total_colors);
 
                 while let Some(color) = parts.next() {
                     let mut rgb= color.split(',');
@@ -132,10 +132,10 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                     };
 
                     let color = Color { r, g, b };
-                    let oklab_color = OklabColor::from_color(&color);
+                    //let oklab_color = OklabColor::from_color(&color);
 
                     colors.push(color);
-                    oklab_colors.push(oklab_color);
+                    //oklab_colors.push(oklab_color);
                 }
 
                 // number of colors should match number of tiles
@@ -152,7 +152,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                     crop_level);
 
                 crop.colors = colors;
-                crop.oklab_colors = oklab_colors;
+                //crop.oklab_colors = oklab_colors;
 
                 let mut new_frame_added = false;
 

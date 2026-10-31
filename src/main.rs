@@ -50,6 +50,7 @@ fn main() -> Result<()> {
     const DISABLE_AGGRESIVE_CROPS: bool = false;
     const DISABLE_ALL_CROPS: bool = false;
     const FRAME_MATCHER_ALGORITHM: FrameMatcherAlgorithm = 
+        //FrameMatcherAlgorithm::OklabWeighted { lightness_weight: 10.0, chroma_weight: 1.0 };
         FrameMatcherAlgorithm::RgbWeighted { red_bias: 3, green_bias: 6, blue_bias: 1 };
 
     let wk_dir = TEST_DIR;
