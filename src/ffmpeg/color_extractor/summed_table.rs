@@ -2,7 +2,7 @@
 
 use crate::ffmpeg::{
     color_extractor::FrameColorExtractionAlgorithm,
-    crops::CropSetting
+    crops::CropSettingX
 };
 
 use super::compute_output_buffer_size;
@@ -17,11 +17,11 @@ pub struct SummedAreaTable {
     frame_height: u32,
 
     buffer_capacity: usize,
-    frame_crops: Vec<CropSetting>,
+    frame_crops: Vec<CropSettingX>,
 }
 
 impl SummedAreaTable {
-    pub fn new(frame_width: u32, frame_height: u32, frame_crops: Vec<CropSetting>) -> Self {
+    pub fn new(frame_width: u32, frame_height: u32, frame_crops: Vec<CropSettingX>) -> Self {
         let stride = frame_width + 1;
         let sums = vec![[0u32; 3]; ((frame_width + 1) * (frame_height + 1)) as usize];
 
@@ -98,16 +98,13 @@ impl FrameColorExtractionAlgorithm for SummedAreaTable {
         let mut output = String::with_capacity(self.buffer_capacity);
 
         for crop in self.frame_crops.iter() {
-            let resize = crop.resize_percentage;
-            let pos_x = crop.pos_x_percentage;
-            let pos_y = crop.pos_y_percentage;
-            let crop_level = crop.crop_level as u8;
+            let resize = crop.resize_percentage();
 
-            write!(&mut output, "{frame_number} {resize} {pos_x} {pos_y} {crop_level}")?;
+            write!(&mut output, "{frame_number} {resize}")?;
 
             for tile in crop.tiles.iter() {
                 let [average_red, average_green, average_blue] = self
-                    .average_rect(tile.start_x, tile.start_y, tile.end_x, tile.end_y);
+                    .average_rect(tile.start_x as u32, tile.start_y as u32, tile.end_x as u32, tile.end_y as u32);
                     
                 write!(&mut output, " {average_red},{average_green},{average_blue}")?;
             }

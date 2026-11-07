@@ -1,9 +1,9 @@
 use image::{Rgb, RgbImage};
 
 use super::FrameColorExtractionAlgorithm;
-use crate::ffmpeg::crops::CropSetting;
+use crate::ffmpeg::crops::CropSettingX;
 
-pub(super) fn assert_correct_color_averages<A>(create_algorithm: impl FnOnce(u32, u32, Vec<CropSetting>) -> A)
+pub(super) fn assert_correct_color_averages<A>(create_algorithm: impl FnOnce(u32, u32, Vec<CropSettingX>) -> A)
 where
     A: FrameColorExtractionAlgorithm,
 {
@@ -40,11 +40,11 @@ where
     });
     let pixels: &[u8] = image.as_raw();
 
-    let frame_crops = CropSetting::all_crops(
+    let frame_crops = CropSettingX::all_crops(
         FRAME_WIDTH,
         FRAME_HEIGHT,
-        GRID_SIZE,
-        GRID_SIZE).unwrap();
+        GRID_SIZE as u8,
+        GRID_SIZE as u8).unwrap();
 
     let total_frame_crops = frame_crops.len();
 
@@ -64,15 +64,15 @@ where
     // check number of lines match number of crops
     assert_eq!(lines.len(), total_frame_crops, "number of lines should match number of crops");
 
-    let frame_crops = CropSetting::all_crops(
+    let frame_crops = CropSettingX::all_crops(
         FRAME_WIDTH,
         FRAME_HEIGHT,
-        GRID_SIZE,
-        GRID_SIZE).unwrap();
+        GRID_SIZE as u8,
+        GRID_SIZE as u8).unwrap();
 
-    // [Frame Index] [Crop Size] [PosX] [PosY] [R,G,B] [R,G,B] [R,G,B] [R,G,B]
+    // [Frame Index] [Crop Size] [R,G,B] [R,G,B] [R,G,B] [R,G,B]
     for (i, crop) in frame_crops.iter().enumerate() {
-        let mut expected_line = format!("{frame_index} {} {} {} {}", crop.resize_percentage, crop.pos_x_percentage, crop.pos_y_percentage, crop.crop_level as u8);
+        let mut expected_line = format!("{frame_index} {}", crop.resize_percentage());
         let line = &lines[i];
 
         // check full frame which should exactly match RGB array above

@@ -1,6 +1,6 @@
 use crate::ffmpeg::{
     color_extractor::FrameColorExtractionAlgorithm,
-    crops::CropSetting
+    crops::CropSettingX
 };
 
 use super::compute_output_buffer_size;
@@ -12,12 +12,12 @@ const BYTES_PER_PIXEL: u32 = 3;
 
 pub struct PixelArray {
     frame_width: u32,
-    frame_crops: Vec<CropSetting>,
+    frame_crops: Vec<CropSettingX>,
     buffer_capacity: usize,
 }
 
 impl PixelArray {
-    pub fn new(frame_width: u32, frame_crops: Vec<CropSetting>) -> Self {
+    pub fn new(frame_width: u32, frame_crops: Vec<CropSettingX>) -> Self {
         let buffer_capacity = compute_output_buffer_size(&frame_crops);
 
         PixelArray {
@@ -33,12 +33,10 @@ impl FrameColorExtractionAlgorithm for PixelArray {
         let mut output = String::with_capacity(self.buffer_capacity);
         
         for crop in self.frame_crops.iter() {
-            let resize = crop.resize_percentage;
-            let pos_x = crop.pos_x_percentage;
-            let pos_y = crop.pos_y_percentage;
-            let crop_level = crop.crop_level as u8;
+            let resize = crop.resize_percentage();
+            let total_tile_pixels = crop.total_tile_pixels();
 
-            write!(&mut output, "{frame_number} {resize} {pos_x} {pos_y} {crop_level}")?;
+            write!(&mut output, "{frame_number} {resize}")?;
 
             for tile in crop.tiles.iter() {
                 let mut total_red: u32 = 0;
@@ -56,9 +54,9 @@ impl FrameColorExtractionAlgorithm for PixelArray {
                     }
                 }
 
-                let average_red = f64::round(total_red as f64 / tile.total_pixels as f64) as u8;
-                let average_green = f64::round(total_green as f64 / tile.total_pixels as f64) as u8;
-                let average_blue = f64::round(total_blue as f64 / tile.total_pixels as f64) as u8;
+                let average_red = f64::round(total_red as f64 / total_tile_pixels as f64) as u8;
+                let average_green = f64::round(total_green as f64 / total_tile_pixels as f64) as u8;
+                let average_blue = f64::round(total_blue as f64 / total_tile_pixels as f64) as u8;
                 
                 write!(&mut output, " {average_red},{average_green},{average_blue}")?;
             }
