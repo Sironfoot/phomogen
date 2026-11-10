@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::File, io::{self, BufRead}, sync::mpsc::{self, Receiver}, thread};
 
-use crate::{app::{App, FrameCrop, VideoColorIndexDatabase, frame_data::FrameData}, ffmpeg::crops::CropLevel, frame_matcher::{Color}};
+use crate::{app::{App, FrameCrop, VideoColorIndexDatabase, frame_data::FrameData}, ffmpeg::crops::{CropSettingX}, frame_matcher::Color};
 
 pub struct LoadDatabaseProgressReport {
     pub video_file_name: String,
@@ -16,7 +16,6 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
 
     let color_tiles_x = app.color_tiles_x;
     let color_tiles_y = app.color_tiles_y;
-    let total_colors = (color_tiles_x * color_tiles_y) as usize;
 
     let videos_to_load = app.videos.iter()
         .filter(|v| v.is_chosen && v.database.is_none() && v.database_path.is_some())
@@ -27,6 +26,15 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
         let total_frames = video.metadata.total_frames as u32;
         let database_path = video.database_path.clone().unwrap();
         let tx = tx.clone();
+
+        let crops = CropSettingX::all_crops(
+            video.metadata.width,
+            video.metadata.height, app.color_tiles_x as u8, app.color_tiles_y as u8);
+        
+        let crops = match crops {
+            Ok(crops) => crops,
+            Err(_) => continue,
+        };
 
         thread::spawn(move || {
             let mut total_frames_added: u32 = 0;
@@ -41,7 +49,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
             let max_line_length = 222;
             let mut line = String::with_capacity(max_line_length);
             
-            // e.g. 0 100 0 0 1 108,105,100 99,96,99 85,85,77....
+            // e.g. 0 100 108,105,100 99,96,99 85,85,77....
             loop {
                 line.clear();
 
@@ -74,45 +82,20 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                     continue;
                 };
 
+                // find the crop setting (50%, 66.666% etc.)
+                let Some(crop) = crops.iter()
+                    .find(|c| c.resize_percentage() as f32 == resize_percentage) else {
+                    dropped_frames += 1;
+                    continue;
+                };
+
                 // should be in range 1 - 100
                 if resize_percentage < 1.0 || resize_percentage > 100.0 {
                     dropped_frames += 1;
                     continue;
                 }
 
-                // get pos X
-                let Some(pos_x_percentage) = parts.next().and_then(|v| v.parse::<f32>().ok()) else {
-                    dropped_frames += 1;
-                    continue;
-                };
-
-                if pos_x_percentage > 100.0 {
-                    dropped_frames += 1;
-                    continue;
-                }
-
-                // get pos Y
-                let Some(pos_y_percentage) = parts.next().and_then(|v| v.parse::<f32>().ok()) else {
-                    dropped_frames += 1;
-                    continue;
-                };
-
-                if pos_y_percentage > 100.0 {
-                    dropped_frames += 1;
-                    continue;
-                }
-
-                // get crop level
-                let Some(crop_level) = parts.next().and_then(|v| v.parse::<u8>().ok()) else {
-                    dropped_frames += 1;
-                    continue;
-                };
-
-                let Ok(crop_level) = CropLevel::try_from(crop_level) else {
-                    dropped_frames += 1;
-                    continue;
-                };
-
+                let total_colors = crop.tiles.len();
                 let mut colors: Vec<Color> = Vec::with_capacity(total_colors);
                 //let mut oklab_colors: Vec<OklabColor> = Vec::with_capacity(total_colors);
 
@@ -147,9 +130,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                 let mut crop = FrameCrop::init(
                     color_tiles_x as u8,
                     resize_percentage,
-                    pos_x_percentage,
-                    pos_y_percentage,
-                    crop_level);
+                    crop.crop_level);
 
                 crop.colors = colors;
                 //crop.oklab_colors = oklab_colors;

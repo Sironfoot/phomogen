@@ -64,8 +64,8 @@ impl MatcherAlgorithm for RgbMatcher {
                         nearest_match.tile_index = tile_index;
                         nearest_match.frame_index =  frame.frame_index;
                         nearest_match.crop_resize = crop.resize_percentage;
-                        nearest_match.crop_pos_x = crop.pos_x_percentage;
-                        nearest_match.crop_pos_y = crop.pos_y_percentage;
+                        // nearest_match.crop_pos_x = crop.pos_x_percentage;
+                        // nearest_match.crop_pos_y = crop.pos_y_percentage;
                         nearest_match.is_flipped = false;
 
                         smallest_distance = distance;
@@ -79,8 +79,8 @@ impl MatcherAlgorithm for RgbMatcher {
                         nearest_match.tile_index = tile_index;
                         nearest_match.frame_index =  frame.frame_index;
                         nearest_match.crop_resize = crop.resize_percentage;
-                        nearest_match.crop_pos_x = crop.pos_x_percentage;
-                        nearest_match.crop_pos_y = crop.pos_y_percentage;
+                        // nearest_match.crop_pos_x = crop.pos_x_percentage;
+                        // nearest_match.crop_pos_y = crop.pos_y_percentage;
                         nearest_match.is_flipped = true;
 
                         smallest_distance = flipped_distance;
