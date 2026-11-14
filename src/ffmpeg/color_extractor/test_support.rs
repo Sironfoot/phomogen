@@ -1,9 +1,9 @@
 use image::{Rgb, RgbImage};
 
 use super::FrameColorExtractionAlgorithm;
-use crate::ffmpeg::crops::CropSettingX;
+use crate::ffmpeg::crops::CropSetting;
 
-pub(super) fn assert_correct_color_averages<A>(create_algorithm: impl FnOnce(u32, u32, Vec<CropSettingX>) -> A)
+pub(super) fn assert_correct_color_averages<A>(create_algorithm: impl FnOnce(u32, u32, Vec<CropSetting>) -> A)
 where
     A: FrameColorExtractionAlgorithm,
 {
@@ -40,7 +40,7 @@ where
     });
     let pixels: &[u8] = image.as_raw();
 
-    let frame_crops = CropSettingX::all_crops(
+    let frame_crops = CropSetting::all_crops(
         FRAME_WIDTH,
         FRAME_HEIGHT,
         GRID_SIZE as u8,
@@ -64,7 +64,7 @@ where
     // check number of lines match number of crops
     assert_eq!(lines.len(), total_frame_crops, "number of lines should match number of crops");
 
-    let frame_crops = CropSettingX::all_crops(
+    let frame_crops = CropSetting::all_crops(
         FRAME_WIDTH,
         FRAME_HEIGHT,
         GRID_SIZE as u8,

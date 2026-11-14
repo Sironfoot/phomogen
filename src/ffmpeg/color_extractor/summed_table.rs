@@ -2,7 +2,7 @@
 
 use crate::ffmpeg::{
     color_extractor::FrameColorExtractionAlgorithm,
-    crops::CropSettingX
+    crops::CropSetting
 };
 
 use super::compute_output_buffer_size;
@@ -17,11 +17,11 @@ pub struct SummedAreaTable {
     frame_height: u32,
 
     buffer_capacity: usize,
-    frame_crops: Vec<CropSettingX>,
+    frame_crops: Vec<CropSetting>,
 }
 
 impl SummedAreaTable {
-    pub fn new(frame_width: u32, frame_height: u32, frame_crops: Vec<CropSettingX>) -> Self {
+    pub fn new(frame_width: u32, frame_height: u32, frame_crops: Vec<CropSetting>) -> Self {
         let stride = frame_width + 1;
         let sums = vec![[0u32; 3]; ((frame_width + 1) * (frame_height + 1)) as usize];
 

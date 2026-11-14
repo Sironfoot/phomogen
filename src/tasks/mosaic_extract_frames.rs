@@ -99,8 +99,8 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
                     tile_index: matched_tile.tile_index,
                     frame_index: matched_tile.frame_index,
                     crop_resize: matched_tile.crop_resize,
-                    crop_pos_x: matched_tile.crop_pos_x,
-                    crop_pos_y: matched_tile.crop_pos_y,
+                    crop_pos_x: matched_tile.crop_pos_x as f32,
+                    crop_pos_y: matched_tile.crop_pos_y as f32,
                     is_flipped: matched_tile.is_flipped,
                 });
             }

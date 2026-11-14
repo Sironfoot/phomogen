@@ -20,7 +20,7 @@ use std::io::Write as IoWrite;
 use anyhow::Result;
 
 use crate::{app::SystemInfo, ffmpeg::VideoMetadata};
-use crate::ffmpeg::crops::CropSettingX;
+use crate::ffmpeg::crops::CropSetting;
 
 const BYTES_PER_PIXEL: u32 = 3;
 const DEFAULT_RESIZE_WIDTH: u32 = 1920;
@@ -37,7 +37,7 @@ pub trait FrameColorExtractionAlgorithm {
     fn process_frame(&mut self, frame_number: u64, pixels: &[u8]) -> Result<String>;
 }
 
-fn compute_output_buffer_size(crops: &[CropSettingX]) -> usize {
+fn compute_output_buffer_size(crops: &[CropSetting]) -> usize {
     let mut buffer_capacity: usize = 10;
 
     // database entries look like: [Frame Index] [Crop Size] [PosX] [PosY] [Level] [R,G,B] [R,G,B] [R,G,B] [R,G,B]...
@@ -136,7 +136,7 @@ impl ColorExtractor {
         let frame_width = self.resize_width;
         let frame_height = (frame_width as f64 / self.video.aspect_ratio.ratio()).round() as u32;
         
-        let frame_crops = CropSettingX::all_crops(frame_width, frame_height, self.color_tiles_x as u8, self.color_tiles_y as u8)?;
+        let frame_crops = CropSetting::all_crops(frame_width, frame_height, self.color_tiles_x as u8, self.color_tiles_y as u8)?;
 
         let seconds_to_target_frame = self.start_frame_index as f64 / self.video.frame_rate;
 

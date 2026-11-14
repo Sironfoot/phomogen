@@ -1,7 +1,8 @@
 use anyhow::Result;
 use crate::ffmpeg::AspectRatio;
 
-pub struct CropSettingX {
+#[derive(Debug, Clone)]
+pub struct CropSetting {
     resize_percentage: f64,
     pub crop_level: CropLevel,
 
@@ -15,10 +16,10 @@ pub struct CropSettingX {
     tile_height: u32,
     tile_pixels: u32,
 
-    pub tiles: Vec<CropTileX>,
+    pub tiles: Vec<CropTile>,
 }
 
-impl CropSettingX {
+impl CropSetting {
     pub fn resize_percentage(&self) -> f64 {
         self.resize_percentage
     }
@@ -72,7 +73,7 @@ impl CropSettingX {
             ((frame_height - cropped_height) as f64 / 2.0).floor() as u32
         } else { 0 };
 
-        let mut tiles: Vec<CropTileX> = Vec::with_capacity((color_tiles_x * color_tiles_y) as usize);
+        let mut tiles: Vec<CropTile> = Vec::with_capacity((color_tiles_x * color_tiles_y) as usize);
 
         for grid_y in 0..full_color_tiles_y {
             for grid_x in 0..full_color_tiles_x {
@@ -82,7 +83,7 @@ impl CropSettingX {
                 let start_y = (grid_y * tile_height) + cropped_start_y;
                 let end_y = start_y + tile_height;
 
-                tiles.push(CropTileX { start_x, end_x, start_y, end_y });
+                tiles.push(CropTile { start_x, end_x, start_y, end_y });
             }
         }
         
@@ -123,7 +124,8 @@ impl CropSettingX {
     }
 }
 
-pub struct CropTileX {
+#[derive(Debug, Clone)]
+pub struct CropTile {
     pub start_x: u32,
     pub end_x: u32,
     pub start_y: u32,
@@ -151,160 +153,7 @@ impl TryFrom<u8> for CropLevel {
     }
 }
 
-pub struct CropSetting {
-    pub resize_percentage: f64,
-    pub pos_x_percentage: f64,
-    pub pos_y_percentage: f64,
-    pub crop_level: CropLevel,
-
-    pub tiles: Vec<CropTile>,
-}
-
-pub struct CropTile {
-    pub start_x: u32,
-    pub end_x: u32,
-    pub start_y: u32,
-    pub end_y: u32,
-
-    pub total_pixels: u32,
-}
-
-impl CropSetting {
-    fn new(resize: f64, pos_x: f64, pos_y: f64, crop_level: CropLevel, frame_width: u32, frame_height: u32, color_tiles_x: u32, color_tiles_y: u32) -> Self {
-        let crop_start_x = f64::round((frame_width as f64 / 100.0) * pos_x) as u32;
-        let crop_start_y = f64::round((frame_height as f64 / 100.0) * pos_y) as u32;
-        
-        let cropped_width = f64::round((frame_width as f64 / 100.0) * resize) as u32;
-        let cropped_width = cropped_width.min(frame_width - crop_start_x);
-
-        let cropped_height = f64::round((frame_height as f64 / 100.0) * resize) as u32;
-        let cropped_height = cropped_height.min(frame_height - crop_start_y);
-
-        let mut tiles: Vec<CropTile> = Vec::with_capacity((color_tiles_x * color_tiles_y) as usize);
-
-        for grid_y in 0..color_tiles_y {
-            for grid_x in 0..color_tiles_x {
-                let start_x = crop_start_x + (grid_x * cropped_width / color_tiles_x);
-                let end_x = crop_start_x + ((grid_x + 1) * cropped_width / color_tiles_x);
-
-                let start_y = crop_start_y + (grid_y * cropped_height / color_tiles_y);
-                let end_y = crop_start_y + ((grid_y + 1) * cropped_height / color_tiles_y);
-
-                let tile_width = end_x - start_x;
-                let tile_height = end_y - start_y;
-                let total_pixels = tile_width * tile_height;
-
-                tiles.push(CropTile { start_x, end_x, start_y, end_y, total_pixels });
-            }
-        }
-
-        Self {
-            resize_percentage: resize,
-            pos_x_percentage: pos_x,
-            pos_y_percentage: pos_y,
-            crop_level,
-
-            tiles: tiles,
-        }
-    }
-
-    pub fn all_crops(frame_width: u32, frame_height: u32, color_tiles_x: u32, color_tiles_y: u32) -> Result<Vec<Self>> {
-        let aspect_ratio = AspectRatio::new(frame_width, frame_height);
-
-        match aspect_ratio {
-            AspectRatio::Landscape16x9 => {
-                Ok(CropSetting::get_16x9(frame_width, frame_height, color_tiles_x, color_tiles_y))
-            },
-            _ => {
-                Err(anyhow::format_err!("`{aspect_ratio}` aspect ratio videos aren't supported"))
-            }
-        }
-    }
-
-    fn get_16x9(frame_width: u32, frame_height: u32, color_tiles_x: u32, color_tiles_y: u32) -> Vec<Self> {
-        vec![
-            // full frame
-            Self::new(100.0, 0.0, 0.0, CropLevel::Essential, frame_width, frame_height, color_tiles_x, color_tiles_y), // full frame
-
-            // 80% crops
-            Self::new(80.0, 0.0, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),     // top left
-            Self::new(80.0, 10.0, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // top
-            Self::new(80.0, 20.0, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // top right
-
-            Self::new(80.0, 0.0, 10.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // left
-            Self::new(80.0, 10.0, 10.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // center
-            Self::new(80.0, 20.0, 10.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // right
-
-            Self::new(80.0, 0.0, 20.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // bottom left
-            Self::new(80.0, 10.0, 20.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // bottom
-            Self::new(80.0, 20.0, 20.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // bottom right
-
-            // 80% inner crops
-            Self::new(80.0, 5.0, 5.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),     // inner top left
-            Self::new(80.0, 10.0, 5.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // inner top
-            Self::new(80.0, 15.0, 5.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // inner top right
-
-            Self::new(80.0, 5.0, 10.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // inner left
-            Self::new(80.0, 15.0, 10.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // inner right
-
-            Self::new(80.0, 5.0, 15.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // inner bottom left
-            Self::new(80.0, 10.0, 15.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // inner bottom
-            Self::new(80.0, 15.0, 15.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // inner bottom right
-
-            // 66.666% crops
-            Self::new(66.666, 0.0, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),       // top left
-            Self::new(66.666, 16.666, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // top
-            Self::new(66.666, 33.333, 0.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // top right
-
-            Self::new(66.666, 0.0, 16.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // left
-            Self::new(66.666, 16.666, 16.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y), // center
-            Self::new(66.666, 33.333, 16.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y), // right
-
-            Self::new(66.666, 0.0, 33.333, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),    // bottom left
-            Self::new(66.666, 16.666, 33.333, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom
-            Self::new(66.666, 33.333, 33.333, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom right
-
-            // 66.666% inner crops
-            Self::new(66.666, 8.333, 8.333, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),   // inner top left
-            Self::new(66.666, 16.666, 8.333, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),  // inner top
-            Self::new(66.666, 25.666, 8.333, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),  // inner top right
-
-            Self::new(66.666, 8.333, 16.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),  // inner left
-            Self::new(66.666, 25.666, 16.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner right
-
-            Self::new(66.666, 8.333, 25.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),  // inner bottom left
-            Self::new(66.666, 16.666, 25.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom
-            Self::new(66.666, 25.666, 25.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom right
-
-            // 50% crops
-            Self::new(50.0, 0.0, 0.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),   // top left
-            Self::new(50.0, 25.0, 0.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // top
-            Self::new(50.0, 50.0, 0.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // top right
-
-            Self::new(50.0, 0.0, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // left
-            Self::new(50.0, 25.0, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // center
-            Self::new(50.0, 50.0, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // right
-
-            Self::new(50.0, 0.0, 50.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),  // bottom left
-            Self::new(50.0, 25.0, 50.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom
-            Self::new(50.0, 50.0, 50.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // bottom right
-
-            // 50% inner crops
-            Self::new(50.0, 12.5, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top left
-            Self::new(50.0, 25.0, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top
-            Self::new(50.0, 37.5, 12.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner top right
-
-            Self::new(50.0, 12.5, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner left
-            Self::new(50.0, 37.5, 25.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner left
-
-            Self::new(50.0, 12.5, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom left
-            Self::new(50.0, 25.0, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom
-            Self::new(50.0, 37.5, 37.5, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y), // inner bottom right
-        ]
-
-        // 104 vs 232
-    }
-}
+// 104 vs 232
 
 #[cfg(test)]
 mod tests {
@@ -319,7 +168,7 @@ mod tests {
         let color_tiles_y: u8 = 8;
 
         // full frame
-        let full_frame = CropSettingX::new(
+        let full_frame = CropSetting::new(
             100.0,
             CropLevel::Essential,
             frame_width,
@@ -353,7 +202,7 @@ mod tests {
         assert_eq!(last_tile.end_y, frame_height, "full_frame: last tile end_y should be {frame_height}");
 
         // 50% crop
-        let fifty_crop = CropSettingX::new(
+        let fifty_crop = CropSetting::new(
             50.0,
             CropLevel::Aggressive,
             frame_width,

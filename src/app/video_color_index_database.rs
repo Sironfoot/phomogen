@@ -1,17 +1,19 @@
-use crate::app::frame_data::FrameData;
+use crate::{app::frame_data::FrameData, ffmpeg::crops::CropSetting};
 
 pub struct VideoColorIndexDatabase {
     pub color_tiles_x: u32,
     pub color_tiles_y: u32,
+    pub crops: Vec<CropSetting>,
 
     frames: Vec<FrameData>,
 }
 
 impl VideoColorIndexDatabase {
-    pub fn new(color_tiles_x: u32, color_tiles_y: u32, frames: Vec<FrameData>) -> VideoColorIndexDatabase {
+    pub fn new(color_tiles_x: u32, color_tiles_y: u32, crops: Vec<CropSetting>, frames: Vec<FrameData>) -> VideoColorIndexDatabase {
         VideoColorIndexDatabase {
             color_tiles_x,
             color_tiles_y,
+            crops,
             frames,
         }
     }

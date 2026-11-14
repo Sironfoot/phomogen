@@ -1,6 +1,6 @@
 use crate::ffmpeg::{
     color_extractor::FrameColorExtractionAlgorithm,
-    crops::CropSettingX
+    crops::CropSetting
 };
 
 use super::compute_output_buffer_size;
@@ -12,12 +12,12 @@ const BYTES_PER_PIXEL: u32 = 3;
 
 pub struct PixelArray {
     frame_width: u32,
-    frame_crops: Vec<CropSettingX>,
+    frame_crops: Vec<CropSetting>,
     buffer_capacity: usize,
 }
 
 impl PixelArray {
-    pub fn new(frame_width: u32, frame_crops: Vec<CropSettingX>) -> Self {
+    pub fn new(frame_width: u32, frame_crops: Vec<CropSetting>) -> Self {
         let buffer_capacity = compute_output_buffer_size(&frame_crops);
 
         PixelArray {

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::File, io::{self, BufRead}, sync::mpsc::{self, Receiver}, thread};
 
-use crate::{app::{App, FrameCrop, VideoColorIndexDatabase, frame_data::FrameData}, ffmpeg::crops::{CropSettingX}, frame_matcher::Color};
+use crate::{app::{App, FrameCrop, VideoColorIndexDatabase, frame_data::FrameData}, ffmpeg::crops::{CropSetting}, frame_matcher::Color};
 
 pub struct LoadDatabaseProgressReport {
     pub video_file_name: String,
@@ -27,7 +27,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
         let database_path = video.database_path.clone().unwrap();
         let tx = tx.clone();
 
-        let crops = CropSettingX::all_crops(
+        let crops = CropSetting::all_crops(
             video.metadata.width,
             video.metadata.height, app.color_tiles_x as u8, app.color_tiles_y as u8);
         
@@ -127,13 +127,11 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                     continue;
                 }
 
-                let mut crop = FrameCrop::init(
-                    color_tiles_x as u8,
-                    resize_percentage,
-                    crop.crop_level);
+                let mut frame_crop = FrameCrop::init(
+                    resize_percentage, crop.crop_level);
 
-                crop.colors = colors;
-                //crop.oklab_colors = oklab_colors;
+                frame_crop.colors = colors;
+                //frame_crop.oklab_colors = oklab_colors;
 
                 let mut new_frame_added = false;
 
@@ -148,7 +146,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                     total_frames_added += 1;
                 }
 
-                frame_data.crops.push(crop);
+                frame_data.crops.push(frame_crop);
 
                 if new_frame_added && total_frames_added % REPORT_PROGRESS_AFTER_FRAMES == 0 {
                     tx.send(LoadDatabaseProgressReport {
@@ -165,7 +163,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
             }
 
             let color_database = VideoColorIndexDatabase::new(
-                color_tiles_x, color_tiles_y, frames.into_values().collect());
+                color_tiles_x, color_tiles_y, crops, frames.into_values().collect());
 
             tx.send(LoadDatabaseProgressReport {
                 video_file_name: video_file_name,
