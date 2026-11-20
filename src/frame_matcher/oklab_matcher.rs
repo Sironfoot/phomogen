@@ -8,14 +8,14 @@ pub struct OklabMatcher {
 }
 
 impl OklabMatcher {
-    fn check_oklab_distance<'color, I>(&self, frame_colors: I, candidate: &ImageTile) -> f32
+    fn check_distance<'color, I>(&self, frame_colors: I, oklab_colors: &[OklabColor]) -> f32
     where
         I: IntoIterator<Item = &'color OklabColor>,
     {
         let mut frame_colors = frame_colors.into_iter();
         let mut distance: f32 = 0.0;
 
-        for image_color in &candidate.oklab_colors {
+        for image_color in oklab_colors {
             let Some(frame_color) = frame_colors.next() else {
                 return f32::INFINITY;
             };
@@ -34,6 +34,13 @@ impl MatcherAlgorithm for OklabMatcher {
         databases: &HashMap<String, Arc<VideoColorIndexDatabase>>,
         allowed_crops: &Vec<CropLevel>
     ) -> FrameMatch {
+
+        let candidate_colors = match &candidate.oklab_colors {
+            Some(colors) => colors,
+            None => {
+                panic!("canidate has no Oklab colors set")
+            },
+        };
 
         let mut nearest_match = FrameMatch {
             tile_index,
@@ -60,8 +67,8 @@ impl MatcherAlgorithm for OklabMatcher {
                         .find(|c| c.resize_percentage() as f32 == frame_crop.resize_percentage)
                     else { continue; };
 
-                    let color_tile_width = crop.color_tiles_x() as u8;
-                    let color_tile_height = crop.color_tiles_y() as u8;
+                    let color_tile_width = crop.full_color_tiles_x() as u8 - crop.color_tiles_x();
+                    let color_tile_height = crop.full_color_tiles_y() as u8 - crop.color_tiles_y();
 
                     for x in 0..color_tile_width {
                         for y in 0..color_tile_height {
@@ -71,7 +78,7 @@ impl MatcherAlgorithm for OklabMatcher {
                                 Err(err) => panic!("Error: {}", err),
                             };
 
-                            let distance = self.check_oklab_distance(sub_grid, candidate);
+                            let distance = self.check_distance(sub_grid, candidate_colors);
 
                             if distance < smallest_distance {
                                 nearest_match.tile_index = tile_index;
@@ -91,7 +98,7 @@ impl MatcherAlgorithm for OklabMatcher {
                             };
 
                             // check flipped
-                            let flipped_distance = self.check_oklab_distance(sub_grid_flipped, candidate);
+                            let flipped_distance = self.check_distance(sub_grid_flipped, candidate_colors);
 
                             if flipped_distance < smallest_distance {
                                 nearest_match.tile_index = tile_index;

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::File, io::{self, BufRead}, sync::mpsc::{self, Receiver}, thread};
 
-use crate::{app::{App, FrameCrop, VideoColorIndexDatabase, frame_data::FrameData}, ffmpeg::crops::{CropSetting}, frame_matcher::Color};
+use crate::{app::{App, FrameCrop, VideoColorIndexDatabase, frame_data::FrameData}, ffmpeg::crops::CropSetting, frame_matcher::{Color, FrameMatcherAlgorithm, OklabColor}};
 
 pub struct LoadDatabaseProgressReport {
     pub video_file_name: String,
@@ -34,6 +34,11 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
         let crops = match crops {
             Ok(crops) => crops,
             Err(_) => continue,
+        };
+
+        let is_oklab_algorithm = match app.frame_matcher_algorithm {
+            FrameMatcherAlgorithm::Oklab | FrameMatcherAlgorithm::OklabWeighted { .. } => true,
+            _ => false,
         };
 
         thread::spawn(move || {
@@ -97,7 +102,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
 
                 let total_colors = crop.tiles.len();
                 let mut colors: Vec<Color> = Vec::with_capacity(total_colors);
-                //let mut oklab_colors: Vec<OklabColor> = Vec::with_capacity(total_colors);
+                let mut oklab_colors: Option<Vec<OklabColor>> = if is_oklab_algorithm { Some(Vec::with_capacity(total_colors)) } else { None };
 
                 while let Some(color) = parts.next() {
                     let mut rgb= color.split(',');
@@ -115,10 +120,14 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                     };
 
                     let color = Color { r, g, b };
-                    //let oklab_color = OklabColor::from_color(&color);
-
+                    let oklab_color: Option<OklabColor> = if is_oklab_algorithm { Some(OklabColor::from_color(&color)) } else { None };
+                    
                     colors.push(color);
-                    //oklab_colors.push(oklab_color);
+                    
+                    if let Some(oklab_colors) = oklab_colors.as_mut()
+                        && let Some(oklab_color) = oklab_color {
+                        oklab_colors.push(oklab_color);
+                    }
                 }
 
                 // number of colors should match number of tiles
@@ -131,7 +140,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                     resize_percentage, crop.crop_level);
 
                 frame_crop.colors = colors;
-                //frame_crop.oklab_colors = oklab_colors;
+                frame_crop.oklab_colors = oklab_colors;
 
                 let mut new_frame_added = false;
 

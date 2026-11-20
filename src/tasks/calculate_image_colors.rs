@@ -3,7 +3,7 @@ use std::{sync::mpsc::{self, Receiver}, thread};
 use image::{GenericImageView, imageops};
 use image::imageops::FilterType;
 
-use crate::{app::App, frame_matcher::{Color, ImageTile}};
+use crate::{app::App, frame_matcher::{Color, FrameMatcherAlgorithm, ImageTile, OklabColor}};
 
 const LARGEST_DIMENSION: u32 = 10000;
 
@@ -27,6 +27,12 @@ pub fn run(app: &App) -> Receiver<Response> {
 
     let color_tiles_x = app.color_tiles_x;
     let color_tiles_y = app.color_tiles_y;
+    let total_color_tiles = (color_tiles_x & color_tiles_y) as usize;
+
+    let is_oklab_algorithm = match app.frame_matcher_algorithm {
+        FrameMatcherAlgorithm::Oklab | FrameMatcherAlgorithm::OklabWeighted { .. } => true,
+        _ => false,
+    };
 
     for tiling_option in selected_tiling_options {
         let num_tiles_x = tiling_option.num_tiles_x as u32;
@@ -35,7 +41,7 @@ pub fn run(app: &App) -> Receiver<Response> {
 
         let cropped_width = tiling_option.cropped_width;
         let cropped_height = tiling_option.cropped_height;
-
+        
         let tx = tx.clone();
 
         thread::spawn(move || {
@@ -82,9 +88,13 @@ pub fn run(app: &App) -> Receiver<Response> {
                     let sub_image = image_data.view(start_x, start_y, mosaic_tile_width, mosaic_tile_height);
 
                     let mut tile_data = ImageTile {
-                        colors: vec![],
-                        oklab_colors: vec![],
+                        colors: Vec::with_capacity(total_color_tiles),
+                        oklab_colors: None,
                     };
+
+                    if is_oklab_algorithm {
+                        tile_data.oklab_colors = Some(Vec::with_capacity(total_color_tiles));
+                    }
                     
                     for sub_tile_y in 0..color_tiles_y {
                         for sub_tile_x in 0..color_tiles_x {
@@ -123,10 +133,12 @@ pub fn run(app: &App) -> Receiver<Response> {
                                 b: average_blue as u8,
                             };
 
-                            //let oklab_color = OklabColor::from_color(&color);
+                            if let Some(oklab_colors) = tile_data.oklab_colors.as_mut() {
+                                let oklab_color = OklabColor::from_color(&color);
+                                oklab_colors.push(oklab_color);
+                            }
 
                             tile_data.colors.push(color);
-                            //tile_data.oklab_colors.push(oklab_color);
                         }
                     }
 
