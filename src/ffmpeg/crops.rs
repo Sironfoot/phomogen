@@ -142,7 +142,7 @@ impl CropSetting {
     fn get_16x9(frame_width: u32, frame_height: u32, color_tiles_x: u8, color_tiles_y: u8) -> Vec<Self> {
         vec![
             Self::new(50, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),
-            Self::new(60, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new(60, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),
             Self::new(70, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
             Self::new(80, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
             Self::new(90, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
