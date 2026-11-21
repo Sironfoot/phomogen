@@ -364,7 +364,7 @@ fn find_nearest_color(database: &HashMap<u64, FrameData>, candidate: &ImageTile,
         crop_pos_y: 0.0,
         is_flipped: false,
     };
-    let mut smallest_distance = std::u64::MAX;
+    let mut smallest_distance = u64::MAX;
 
     for (frame_index, frame) in database {
         let full_frame_dist = check_distance(&frame.full_frame, candidate);

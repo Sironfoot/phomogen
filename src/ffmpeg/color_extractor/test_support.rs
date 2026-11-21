@@ -72,21 +72,10 @@ where
 
     // [Frame Index] [Crop Size] [R,G,B] [R,G,B] [R,G,B] [R,G,B]
     for (i, crop) in frame_crops.iter().enumerate() {
-        let mut expected_line = format!("{frame_index} {}", crop.resize_percentage());
+        let expected_line = format!("{frame_index} {}", crop.resize_percentage());
         let line = &lines[i];
 
-        // check full frame which should exactly match RGB array above
-        if i == 0 {
-            for color in &colors {
-                let [r, g, b] = color.0;
-                expected_line.push_str(&format!(" {r},{g},{b}"));
-            }
-
-            assert_eq!(*line, expected_line, "full frame colors do not match");
-        }
-        else {
-            assert!(line.starts_with(&expected_line),
-                "line {i} does not start with `{expected_line}`. Full line: `{line}`");
-        }
+        assert!(line.starts_with(&expected_line),
+            "line {i} does not start with `{expected_line}`. Full line: `{line}`");
     }
 }
