@@ -82,20 +82,20 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                 }
 
                 // get resize precentage
-                let Some(resize_percentage) = parts.next().and_then(|v| v.parse::<f32>().ok()) else {
+                let Some(resize_percentage) = parts.next().and_then(|v| v.parse::<u8>().ok()) else {
                     dropped_frames += 1;
                     continue;
                 };
 
                 // find the crop setting (50%, 66.666% etc.)
                 let Some(crop) = crops.iter()
-                    .find(|c| c.resize_percentage() as f32 == resize_percentage) else {
+                    .find(|c| c.resize_percentage() == resize_percentage) else {
                     dropped_frames += 1;
                     continue;
                 };
 
                 // should be in range 1 - 100
-                if resize_percentage < 1.0 || resize_percentage > 100.0 {
+                if resize_percentage < 1 || resize_percentage > 100 {
                     dropped_frames += 1;
                     continue;
                 }
@@ -136,8 +136,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                     continue;
                 }
 
-                let mut frame_crop = FrameCrop::init(
-                    resize_percentage, crop.crop_level);
+                let mut frame_crop = FrameCrop::init(resize_percentage);
 
                 frame_crop.colors = colors;
                 frame_crop.oklab_colors = oklab_colors;

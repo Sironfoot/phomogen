@@ -162,7 +162,7 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
 
                 for matched_frame in matches {
                     let Some(crop) = crops.iter()
-                        .find(|c| c.resize_percentage() as f32 == matched_frame.crop_resize)
+                        .find(|c| c.resize_percentage() == matched_frame.crop_resize)
                     else { continue; };
 
                     let crop_tile = crop.extract_crop_tile(

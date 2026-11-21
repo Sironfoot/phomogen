@@ -3,7 +3,7 @@ use crate::ffmpeg::AspectRatio;
 
 #[derive(Debug, Clone)]
 pub struct CropSetting {
-    resize_percentage: f64,
+    resize_percentage: u8,
     pub crop_level: CropLevel,
 
     color_tiles_x: u8,
@@ -20,7 +20,7 @@ pub struct CropSetting {
 }
 
 impl CropSetting {
-    pub fn resize_percentage(&self) -> f64 {
+    pub fn resize_percentage(&self) -> u8 {
         self.resize_percentage
     }
 
@@ -73,12 +73,12 @@ impl CropSetting {
         }
     }
 
-    fn new(resize: f64, crop_level: CropLevel, frame_width: u32, frame_height: u32, color_tiles_x: u8, color_tiles_y: u8) -> Self {
+    fn new(resize: u8, crop_level: CropLevel, frame_width: u32, frame_height: u32, color_tiles_x: u8, color_tiles_y: u8) -> Self {
         // example: we're using 9x9 color tiles to extract RGB averages from, and the cropped resize we're using is 50%
         // we therefore devide the entire video frame into 18x18 grid. When it comes time to perform nearest matches for the Mosaic
         // and we need the top-left crop of the frame we grab the top-left 9x9 tiles from that 18x18 grid.
-        let full_color_tiles_x = ((100.0 / resize) * color_tiles_x as f64).round() as u32;
-        let full_color_tiles_y = ((100.0 / resize) * color_tiles_y as f64).round() as u32;
+        let full_color_tiles_x = ((100.0 / resize as f64) * color_tiles_x as f64).round() as u32;
+        let full_color_tiles_y = ((100.0 / resize as f64) * color_tiles_y as f64).round() as u32;
 
         let tile_width = (frame_width as f64 / full_color_tiles_x as f64).floor() as u32;
         let tile_height = (frame_height as f64 / full_color_tiles_y as f64).floor() as u32;
@@ -141,10 +141,12 @@ impl CropSetting {
 
     fn get_16x9(frame_width: u32, frame_height: u32, color_tiles_x: u8, color_tiles_y: u8) -> Vec<Self> {
         vec![
-            Self::new(50.0, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),
-            Self::new(66.666, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
-            Self::new(80.0, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
-            Self::new(100.0, CropLevel::Essential, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new(50, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new(60, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new(70, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new(80, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new(90, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new(100, CropLevel::Essential, frame_width, frame_height, color_tiles_x, color_tiles_y),
         ]
     }
 }
@@ -203,7 +205,7 @@ mod tests {
 
         // full frame
         let full_frame = CropSetting::new(
-            100.0,
+            100,
             CropLevel::Essential,
             frame_width,
             frame_height,
@@ -237,7 +239,7 @@ mod tests {
 
         // 50% crop
         let fifty_crop = CropSetting::new(
-            50.0,
+            50,
             CropLevel::Aggressive,
             frame_width,
             frame_height,

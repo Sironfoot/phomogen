@@ -46,7 +46,7 @@ impl MatcherAlgorithm for OklabMatcher {
             tile_index,
             video_filename: String::new(),
             frame_index: 0,
-            crop_resize: 100.0,
+            crop_resize: 100,
             crop_pos_x: 0,
             crop_pos_y: 0,
             is_flipped: false,
@@ -54,17 +54,18 @@ impl MatcherAlgorithm for OklabMatcher {
 
         let mut smallest_distance = f32::INFINITY;
         
+        // loop through each video
         for (video_filename, database) in databases {
             let mut match_found_in_database = false;
             let crops = &database.crops;
 
+            // loop through each frame in that video
             for frame in database.frames() {
-                let allowed_crops = frame.crops.iter()
-                    .filter(|c| allowed_crops.contains(&c.crop_level));
-
-                for frame_crop in allowed_crops {
+                
+                // loop through each crop level for that frame (100% - full frame, 60% frame crop etc.)
+                for frame_crop in frame.crops.iter() {
                     let Some(crop) = crops.iter()
-                        .find(|c| c.resize_percentage() as f32 == frame_crop.resize_percentage)
+                        .find(|c| c.resize_percentage() == frame_crop.resize_percentage && allowed_crops.contains(&c.crop_level))
                     else { continue; };
 
                     let color_tile_width = crop.full_color_tiles_x() as u8 - crop.color_tiles_x();
