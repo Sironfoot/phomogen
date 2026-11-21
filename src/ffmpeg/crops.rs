@@ -48,6 +48,31 @@ impl CropSetting {
         self.tile_pixels
     }
 
+    pub fn total_crops(&self) -> u32 {
+        let num_x = (self.full_color_tiles_x - self.color_tiles_x as u32) + 1;
+        let num_y = (self.full_color_tiles_y - self.color_tiles_y as u32) + 1;
+
+        num_x * num_y
+    }
+
+    pub fn extract_crop_tile(&self, start_x: u8, start_y: u8) -> CropTile {
+        let start_x_pixels = start_x as u32 * self.tile_width;
+        let start_y_pixels = start_y as u32 * self.tile_height;
+
+        let width = self.color_tiles_x as u32 * self.tile_width;
+        let height = self.color_tiles_y as u32 * self.tile_height;
+
+        let end_x_pixels = start_x_pixels + width;
+        let end_y_pixels = start_y_pixels + height;
+
+        CropTile {
+            start_x: start_x_pixels,
+            start_y: start_y_pixels,
+            end_x: end_x_pixels,
+            end_y: end_y_pixels,
+        }
+    }
+
     fn new(resize: f64, crop_level: CropLevel, frame_width: u32, frame_height: u32, color_tiles_x: u8, color_tiles_y: u8) -> Self {
         // example: we're using 9x9 color tiles to extract RGB averages from, and the cropped resize we're using is 50%
         // we therefore devide the entire video frame into 18x18 grid. When it comes time to perform nearest matches for the Mosaic
@@ -130,6 +155,15 @@ pub struct CropTile {
     pub end_x: u32,
     pub start_y: u32,
     pub end_y: u32,
+}
+
+impl CropTile {
+    pub fn dimensions(&self) -> (u32, u32) {
+        let width = self.end_x - self.start_x;
+        let height = self.end_y - self.start_y;
+
+        (width, height)
+    }
 }
 
 #[repr(u8)]

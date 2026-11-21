@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs, io::{BufWriter, Write}, sync::{Arc, atomic::{AtomicUsize, Ordering}, mpsc::{self, Receiver}}, thread::{self, JoinHandle}};
 
-use crate::{app::{App, MosaicTilingOption}, ffmpeg::frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch}};
+use crate::{app::{App, MosaicTilingOption}, ffmpeg::{crops::CropSetting, frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch}}};
 
 use anyhow::Result;
 use image::{DynamicImage, ImageBuffer, ImageEncoder, Rgb, codecs::png::PngEncoder, imageops};
@@ -61,6 +61,9 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
     let database_dir = app.database_dir.clone();
     let (temp_tile_width, temp_tile_height) = select_tile_shape.get_temp_image_tile_dimensions();
 
+    let color_tiles_x = app.color_tiles_x;
+    let color_tiles_y = app.color_tiles_y;
+
     thread::spawn(move || {
         // create the database folder
         let database_dir_exists = fs::exists(&database_dir).unwrap_or(false);
@@ -99,8 +102,8 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
                     tile_index: matched_tile.tile_index,
                     frame_index: matched_tile.frame_index,
                     crop_resize: matched_tile.crop_resize,
-                    crop_pos_x: matched_tile.crop_pos_x as f32,
-                    crop_pos_y: matched_tile.crop_pos_y as f32,
+                    crop_pos_x: matched_tile.crop_pos_x,
+                    crop_pos_y: matched_tile.crop_pos_y,
                     is_flipped: matched_tile.is_flipped,
                 });
             }
@@ -154,14 +157,22 @@ pub fn run(app: &App) -> Result<Receiver<Response>> {
 
                 let (frame_width, frame_height) = image.dimensions();
 
+                let Ok(crops) = CropSetting::all_crops(
+                    frame_width, frame_height, color_tiles_x as u8, color_tiles_y as u8) else { continue; };
+
                 for matched_frame in matches {
-                    let pos_x = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_pos_x as f64) as u32;
-                    let pos_y = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_pos_y as f64) as u32;
-                
-                    let cropped_width = f64::round((frame_width as f64 / 100.0) * matched_frame.crop_resize as f64) as u32;
-                    let cropped_height = f64::round((frame_height as f64 / 100.0) * matched_frame.crop_resize as f64) as u32;
-                
-                    let mut crop = imageops::crop_imm(&image, pos_x, pos_y, cropped_width, cropped_height).to_image();
+                    let Some(crop) = crops.iter()
+                        .find(|c| c.resize_percentage() as f32 == matched_frame.crop_resize)
+                    else { continue; };
+
+                    let crop_tile = crop.extract_crop_tile(
+                        matched_frame.crop_pos_x,
+                        matched_frame.crop_pos_y);
+
+                    let (cropped_width, cropped_height) = crop_tile.dimensions();
+
+                    let mut crop: ImageBuffer<Rgb<u8>, Vec<u8>> = imageops::crop_imm(
+                        &image, crop_tile.start_x, crop_tile.start_y, cropped_width, cropped_height).to_image();
                     
                     if matched_frame.is_flipped {
                         imageops::flip_horizontal_in_place(&mut crop);
