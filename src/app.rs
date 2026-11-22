@@ -25,7 +25,7 @@ pub use video_indexing_report::{VideoIndexCore, VideoIndexingReport, VideoIndexS
 
 use crate::{ffmpeg::{color_extractor::ColorExtractionAlgorithm, crops::CropLevel}, frame_matcher::{Color, FrameMatcherAlgorithm}};
 
-use std::{ops::Add, path::{Path, PathBuf}, time::{Duration, Instant}};
+use std::{fs, ops::Add, path::{Path, PathBuf}, time::{Duration, Instant}};
 
 use terminal_colorsaurus::{color_palette, QueryOptions, ThemeMode};
 
@@ -69,6 +69,18 @@ impl App {
     pub fn new(wk_dir: &Path, sys_info: SystemInfo, srgb_profile: Vec<u8>) -> App {
         let database_dir = wk_dir.join(DATABASE_DIR);
         let mosaics_dir = wk_dir.join(MOSAICS_DIR);
+
+        // create the database folder
+        let database_dir_exists = fs::exists(&database_dir).unwrap_or(false);
+        if !database_dir_exists {
+            fs::create_dir(&database_dir).unwrap();
+        }
+
+        // create the mosaic output folder
+        let mosaics_dir_exists = fs::exists(&mosaics_dir).unwrap_or(false);
+        if !mosaics_dir_exists {
+            fs::create_dir(&mosaics_dir).unwrap();
+        }
 
         let terminal_palette = match color_palette(QueryOptions::default()) {
             Ok(palette) => {
