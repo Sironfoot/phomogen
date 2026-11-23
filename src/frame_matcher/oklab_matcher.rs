@@ -68,11 +68,8 @@ impl MatcherAlgorithm for OklabMatcher {
                         .find(|c| c.resize_percentage() == frame_crop.resize_percentage && allowed_crops.contains(&c.crop_level))
                     else { continue; };
 
-                    let color_tile_width = (crop.full_color_tiles_x() as u8 - crop.color_tiles_x()) + 1;
-                    let color_tile_height = (crop.full_color_tiles_y() as u8 - crop.color_tiles_y()) + 1;
-
-                    for x in 0..color_tile_width {
-                        for y in 0..color_tile_height {
+                    for y in 0..crop.tile_down_shift() {
+                        for x in 0..crop.tile_right_shift() {
                             // check non-flipped
                             let sub_grid = match frame_crop.extract_sub_grid_oklab(x, y, crop) {
                                 Ok(colors) => colors,

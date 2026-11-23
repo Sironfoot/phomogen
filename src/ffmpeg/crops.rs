@@ -1,6 +1,7 @@
 use anyhow::Result;
 use crate::ffmpeg::AspectRatio;
 
+/// Hello woirld
 #[derive(Debug, Clone)]
 pub struct CropSetting {
     resize_percentage: u8,
@@ -11,6 +12,9 @@ pub struct CropSetting {
 
     full_color_tiles_x: u32,
     full_color_tiles_y: u32,
+
+    tile_right_shift: u8,
+    tile_down_shift: u8,
 
     tile_width: u32,
     tile_height: u32,
@@ -48,11 +52,16 @@ impl CropSetting {
         self.tile_pixels
     }
 
-    pub fn total_crops(&self) -> u32 {
-        let num_x = (self.full_color_tiles_x - self.color_tiles_x as u32) + 1;
-        let num_y = (self.full_color_tiles_y - self.color_tiles_y as u32) + 1;
+    pub fn tile_right_shift(&self) -> u8 {
+        self.tile_right_shift
+    }
 
-        num_x * num_y
+    pub fn tile_down_shift(&self) -> u8 {
+        self.tile_down_shift
+    }
+
+    pub fn total_crops(&self) -> u32 {
+        self.tile_right_shift as u32 * self.tile_down_shift as u32
     }
 
     pub fn extract_crop_tile(&self, start_x: u8, start_y: u8) -> CropTile {
@@ -111,6 +120,9 @@ impl CropSetting {
                 tiles.push(CropTile { start_x, end_x, start_y, end_y });
             }
         }
+
+        let tile_right_shift = (full_color_tiles_x as u8 - color_tiles_x) + 1;
+        let tile_down_shift = (full_color_tiles_y as u8 - color_tiles_y) + 1;
         
         Self {
             resize_percentage: resize,
@@ -119,6 +131,8 @@ impl CropSetting {
             color_tiles_y,
             full_color_tiles_x,
             full_color_tiles_y,
+            tile_right_shift,
+            tile_down_shift,
             tile_width,
             tile_height,
             tile_pixels,
