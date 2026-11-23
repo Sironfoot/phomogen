@@ -38,7 +38,7 @@ impl FrameColorExtractionAlgorithm for PixelArray {
 
             write!(&mut output, "{frame_number} {resize}")?;
 
-            for tile in crop.tiles.iter() {
+            for tile in crop.tiles() {
                 let mut total_red: u32 = 0;
                 let mut total_green: u32 = 0;
                 let mut total_blue: u32 = 0;

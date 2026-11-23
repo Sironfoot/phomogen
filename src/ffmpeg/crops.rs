@@ -1,7 +1,19 @@
 use anyhow::Result;
 use crate::ffmpeg::AspectRatio;
 
-/// Hello woirld
+/// Represents how a frame from a video should be divided up into a tile grid for calculating color averages
+/// (for later calculating the Euclidean distance for matching), while also supporting cropping on the frame,
+/// given a specific video resolution and crop amount. 
+/// 
+/// For instance, if we want to divide a 16x9 frame into 8x8 segments, but our cropping level is 50% of the frame, we would divide
+/// the full frame into 16x16 segments. This 16x16 grid is what gets stored in the database. Later we need the top left corner we return
+/// the x 0-8 and y 0-8 tiles, then keep shifting the crop along the 16x16 grid which would yield 81 crops per frame.
+/// 
+/// Ensures all tile x,y coords perfectly sit on pixels boundaries with no rounding for accurate color averaging,
+/// even if the top/bottom or left/right of the get cropped very slightly. For example: 1920x1080 frame with 16x16
+/// tiles the height per tile would 67.5px, we always round down to 67px but then the total height would be 1072px,
+/// so 4px from the top and 4px from the bottom are cropped and are never used in calculations, and also not used
+/// when the frame is eventually pulled from the video to use in the Mosaic
 #[derive(Debug, Clone)]
 pub struct CropSetting {
     resize_percentage: u8,
@@ -20,7 +32,7 @@ pub struct CropSetting {
     tile_height: u32,
     tile_pixels: u32,
 
-    pub tiles: Vec<CropTile>,
+    tiles: Vec<CropTile>,
 }
 
 impl CropSetting {
@@ -64,25 +76,26 @@ impl CropSetting {
         self.tile_right_shift as u32 * self.tile_down_shift as u32
     }
 
+    pub fn tiles(&self) -> &[CropTile] {
+        &self.tiles
+    }
+
     pub fn extract_crop_tile(&self, start_x: u8, start_y: u8) -> CropTile {
-        let start_x_pixels = start_x as u32 * self.tile_width;
-        let start_y_pixels = start_y as u32 * self.tile_height;
+        let top_left_index = ((start_y as u32 * self.full_color_tiles_x) + start_x as u32) as usize;
+        let top_left_tile = &self.tiles[top_left_index];
 
         let width = self.color_tiles_x as u32 * self.tile_width;
         let height = self.color_tiles_y as u32 * self.tile_height;
 
-        let end_x_pixels = start_x_pixels + width;
-        let end_y_pixels = start_y_pixels + height;
-
         CropTile {
-            start_x: start_x_pixels,
-            start_y: start_y_pixels,
-            end_x: end_x_pixels,
-            end_y: end_y_pixels,
+            start_x: top_left_tile.start_x,
+            start_y: top_left_tile.start_y,
+            end_x: top_left_tile.start_x + width,
+            end_y: top_left_tile.start_y + height,
         }
     }
 
-    fn new(resize: u8, crop_level: CropLevel, frame_width: u32, frame_height: u32, color_tiles_x: u8, color_tiles_y: u8) -> Self {
+    fn new16x9(resize: u8, crop_level: CropLevel, frame_width: u32, frame_height: u32, color_tiles_x: u8, color_tiles_y: u8) -> Self {
         // example: we're using 9x9 color tiles to extract RGB averages from, and the cropped resize we're using is 50%
         // we therefore devide the entire video frame into 18x18 grid. When it comes time to perform nearest matches for the Mosaic
         // and we need the top-left crop of the frame we grab the top-left 9x9 tiles from that 18x18 grid.
@@ -145,7 +158,7 @@ impl CropSetting {
 
         match aspect_ratio {
             AspectRatio::Landscape16x9 => {
-                Ok(Self::get_16x9(frame_width, frame_height, color_tiles_x, color_tiles_y))
+                Ok(Self::get_all_16x9(frame_width, frame_height, color_tiles_x, color_tiles_y))
             },
             _ => {
                 Err(anyhow::format_err!("`{aspect_ratio}` aspect ratio videos aren't supported"))
@@ -153,14 +166,14 @@ impl CropSetting {
         }
     }
 
-    fn get_16x9(frame_width: u32, frame_height: u32, color_tiles_x: u8, color_tiles_y: u8) -> Vec<Self> {
+    fn get_all_16x9(frame_width: u32, frame_height: u32, color_tiles_x: u8, color_tiles_y: u8) -> Vec<Self> {
         vec![
-            Self::new(50, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),
-            Self::new(60, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),
-            Self::new(70, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
-            Self::new(80, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
-            Self::new(90, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
-            Self::new(100, CropLevel::Essential, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new16x9(50, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new16x9(60, CropLevel::Aggressive, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new16x9(70, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new16x9(80, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new16x9(90, CropLevel::Moderate, frame_width, frame_height, color_tiles_x, color_tiles_y),
+            Self::new16x9(100, CropLevel::Essential, frame_width, frame_height, color_tiles_x, color_tiles_y),
         ]
     }
 }
@@ -218,7 +231,7 @@ mod tests {
         let color_tiles_y: u8 = 8;
 
         // full frame
-        let full_frame = CropSetting::new(
+        let full_frame = CropSetting::new16x9(
             100,
             CropLevel::Essential,
             frame_width,
@@ -252,7 +265,7 @@ mod tests {
         assert_eq!(last_tile.end_y, frame_height, "full_frame: last tile end_y should be {frame_height}");
 
         // 50% crop
-        let fifty_crop = CropSetting::new(
+        let fifty_crop = CropSetting::new16x9(
             50,
             CropLevel::Aggressive,
             frame_width,
@@ -285,5 +298,37 @@ mod tests {
         assert_eq!(last_tile.end_x, frame_width, "fifty_crop: last tile end_x should be {frame_width}");
         assert_eq!(last_tile.start_y, (frame_height - tile_height) - top_bottom_trim, "fifty_crop: last tile start_y should be {}", (frame_height - tile_height) - top_bottom_trim);
         assert_eq!(last_tile.end_y, frame_height - top_bottom_trim, "fifty_crop: last tile end_y should be {}", frame_height - top_bottom_trim);
+    }
+
+    #[test]
+    fn extract_crop_tile() {
+        let frame_width: u32 = 1920;
+        let frame_height: u32 = 1080;
+
+        let color_tiles_x: u8 = 8;
+        let color_tiles_y: u8 = 8;
+
+        // 50% crop
+        let fifty_crop = CropSetting::new16x9(
+            50,
+            CropLevel::Aggressive,
+            frame_width,
+            frame_height,
+            color_tiles_x,
+            color_tiles_y);
+
+        let top_left = fifty_crop.extract_crop_tile(0, 0);
+        assert_eq!(0, top_left.start_x, "top_left: expected x start pos should be 0");
+        assert_eq!(960, top_left.end_x, "top_left: xpected x end pos should be 960");
+
+        assert_eq!(4, top_left.start_y, "top_left: expected y start pos should be 4");
+        assert_eq!(540, top_left.end_y, "top_left: expected y end pos should be 540");
+
+        let bottom_right = fifty_crop.extract_crop_tile(8, 8);
+        assert_eq!(960, bottom_right.start_x, "bottom_right: expected x start pos should be 0");
+        assert_eq!(1920, bottom_right.end_x, "bottom_right: xpected x end pos should be 960");
+
+        assert_eq!(540, bottom_right.start_y, "bottom_right: expected y start pos should be 4");
+        assert_eq!(1076, bottom_right.end_y, "bottom_right: expected y end pos should be 540");
     }
 }

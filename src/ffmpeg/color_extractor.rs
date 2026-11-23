@@ -48,7 +48,7 @@ fn compute_output_buffer_size(crops: &[CropSetting]) -> usize {
     for crop in crops.iter() {
         buffer_capacity += prefix_length;
 
-        let num_tiles = crop.tiles.len();
+        let num_tiles = crop.tiles().len();
         buffer_capacity += num_tiles * rgb_length;
     }
 

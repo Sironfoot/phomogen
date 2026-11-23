@@ -102,7 +102,7 @@ impl FrameColorExtractionAlgorithm for SummedAreaTable {
 
             write!(&mut output, "{frame_number} {resize}")?;
 
-            for tile in crop.tiles.iter() {
+            for tile in crop.tiles() {
                 let [average_red, average_green, average_blue] = self
                     .average_rect(tile.start_x as u32, tile.start_y as u32, tile.end_x as u32, tile.end_y as u32);
                     

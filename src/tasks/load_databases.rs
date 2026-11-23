@@ -100,7 +100,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                     continue;
                 }
 
-                let total_colors = crop.tiles.len();
+                let total_colors = crop.tiles().len();
                 let mut colors: Vec<Color> = Vec::with_capacity(total_colors);
                 let mut oklab_colors: Option<Vec<OklabColor>> = if is_oklab_algorithm { Some(Vec::with_capacity(total_colors)) } else { None };
 
