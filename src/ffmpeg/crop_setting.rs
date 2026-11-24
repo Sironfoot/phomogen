@@ -1,19 +1,64 @@
 use anyhow::Result;
-use crate::ffmpeg::AspectRatio;
+use crate::ffmpeg::{AspectRatio, CropLevel, Tile};
 
-/// Represents how a frame from a video should be divided up into a tile grid for calculating color averages
-/// (for later calculating the Euclidean distance for matching), while also supporting cropping on the frame,
-/// given a specific video resolution and crop amount. 
+/// Represents how a frame from a video should be divided up into a tile grid for
+/// calculating color averages (for later calculating the Euclidean distance for
+/// matching), while also supporting cropping on the frame, given a specific
+/// video resolution and crop amount. 
 /// 
-/// For instance, if we want to divide a 16x9 frame into 8x8 segments, but our cropping level is 50% of the frame, we would divide
-/// the full frame into 16x16 segments. This 16x16 grid is what gets stored in the database. Later we need the top left corner we return
-/// the x 0-8 and y 0-8 tiles, then keep shifting the crop along the 16x16 grid which would yield 81 crops per frame.
+/// For instance, if we want to divide a 16x9 frame into 8x8 segments, but our
+/// cropping level is 50% of the frame, we would divide the full frame into 16x16
+/// segments. This 16x16 grid is what gets stored in the database. Later we need
+/// the top left corner we return the x 0..8 and y 0..8 tiles, then keep shifting
+/// the crop along the 16x16 grid which would yield 81 crops per frame.
 /// 
-/// Ensures all tile x,y coords perfectly sit on pixels boundaries with no rounding for accurate color averaging,
-/// even if the top/bottom or left/right of the get cropped very slightly. For example: 1920x1080 frame with 16x16
-/// tiles the height per tile would 67.5px, we always round down to 67px but then the total height would be 1072px,
-/// so 4px from the top and 4px from the bottom are cropped and are never used in calculations, and also not used
-/// when the frame is eventually pulled from the video to use in the Mosaic
+/// Ensures all tile x,y coords perfectly sit on pixels boundaries with no
+/// rounding for accurate color averaging, even if the top/bottom or left/right
+/// of the frame gets cropped very slightly. For example: 1920x1080 frame with 16x16
+/// tiles the height per tile would 67.5px, we always round down to 67px but
+/// then the total height would be 1072px (67px * 16), so 4px from the top/bottom
+/// are chopped off and are never used in calculations, or in the final frame
+/// for the Mosaic image output.
+/// 
+/// ## Examples
+/// 
+/// An 4×4 crop within a 8×8 grid can start at indices 0 through 4
+/// on each axis, giving (8 - 4 + 1)² = 25 crop positions.
+/// The top-left crop includes tile indices x ∈ 0..4 and y ∈ 0..4.
+/// 
+/// `extract_crop_tile(0, 0)` function will extract a Tile representing
+/// the x,y coords (and width/height) of the crop (marked by X on the diagram)
+/// 
+/// ```text
+/// |---|---|---|---|---|---|---|---|
+/// | X | X | X | X |   |   |   |   |
+/// | X | X | X | X |   |   |   |   |
+/// | X | X | X | X |   |   |   |   |
+/// | X | X | X | X |   |   |   |   |
+/// |   |   |   |   |   |   |   |   |
+/// |   |   |   |   |   |   |   |   |
+/// |   |   |   |   |   |   |   |   |
+/// |   |   |   |   |   |   |   |   |
+/// |---|---|---|---|---|---|---|---|
+/// ```
+/// 
+/// We can then grab the next Tile with `extract_crop_tile(1, 0)` which would look like:
+/// 
+/// ```text
+/// |---|---|---|---|---|---|---|---|
+/// |   | X | X | X | X |   |   |   |
+/// |   | X | X | X | X |   |   |   |
+/// |   | X | X | X | X |   |   |   |
+/// |   | X | X | X | X |   |   |   |
+/// |   |   |   |   |   |   |   |   |
+/// |   |   |   |   |   |   |   |   |
+/// |   |   |   |   |   |   |   |   |
+/// |   |   |   |   |   |   |   |   |
+/// |---|---|---|---|---|---|---|---|
+/// ```
+/// 
+/// We can keep doing this in a loop using the bounds defined by
+/// `tile_right_shift()` and `tile_down_shift()` to extract every crop
 #[derive(Debug, Clone)]
 pub struct CropSetting {
     resize_percentage: u8,
@@ -32,62 +77,78 @@ pub struct CropSetting {
     tile_height: u32,
     tile_pixels: u32,
 
-    tiles: Vec<CropTile>,
+    tiles: Vec<Tile>,
 }
 
 impl CropSetting {
+    /// The size of the cropped area as a percentage.
     pub fn resize_percentage(&self) -> u8 {
         self.resize_percentage
     }
 
+    /// Number of tiles along the X axis for the cropped part of the frame
     pub fn color_tiles_x(&self) -> u8 {
         self.color_tiles_x
     }
 
+    /// Number of tiles along the Y axis for the cropped part of the frame
     pub fn color_tiles_y(&self) -> u8 {
         self.color_tiles_y
     }
 
+    /// Number of tiles along the X axis for the entire frame
     pub fn full_color_tiles_x(&self) -> u32 {
         self.full_color_tiles_x
     }
 
+    /// Number of tiles along the Y axis for the entire frame
     pub fn full_color_tiles_y(&self) -> u32 {
         self.full_color_tiles_y
     }
 
+    /// Height/width of individual tiles
     pub fn tile_dimensions(&self) -> (u32, u32) {
         (self.tile_width, self.tile_height)
     }
 
+    /// Total number of pixels in each tile
     pub fn total_tile_pixels(&self) -> u32 {
         self.tile_pixels
     }
 
+    /// Number of times a crop, starting from the top left corner, can be
+    /// shifted right until it hits the right hand edge of the frame
     pub fn tile_right_shift(&self) -> u8 {
         self.tile_right_shift
     }
 
+    /// Number of times a crop, starting from the top left corner, can be
+    /// shifted down until it hits the bottom edge of the frame
     pub fn tile_down_shift(&self) -> u8 {
         self.tile_down_shift
     }
 
+    /// Total number of crops possible given a specific crop size, for instance 50% crop when dividing into 8x8 tiles
+    /// would mean entire frame is 16x16 grid which would yield 81 crops (desn't include reverse/flipped images)
     pub fn total_crops(&self) -> u32 {
         self.tile_right_shift as u32 * self.tile_down_shift as u32
     }
 
-    pub fn tiles(&self) -> &[CropTile] {
+    /// Represents the full tile grid for the frame
+    pub fn tiles(&self) -> &[Tile] {
         &self.tiles
     }
 
-    pub fn extract_crop_tile(&self, start_x: u8, start_y: u8) -> CropTile {
+    /// Extracts a Tile representing a specific crop position by it x,y grid position, the returned Tile type
+    /// contains the crops x,y position,length information
+    pub fn extract_crop_tile(&self, start_x: u8, start_y: u8) -> Tile {
         let top_left_index = ((start_y as u32 * self.full_color_tiles_x) + start_x as u32) as usize;
         let top_left_tile = &self.tiles[top_left_index];
 
         let width = self.color_tiles_x as u32 * self.tile_width;
         let height = self.color_tiles_y as u32 * self.tile_height;
 
-        CropTile {
+        Tile {
             start_x: top_left_tile.start_x,
             start_y: top_left_tile.start_y,
             end_x: top_left_tile.start_x + width,
@@ -120,7 +181,7 @@ impl CropSetting {
             ((frame_height - cropped_height) as f64 / 2.0).floor() as u32
         } else { 0 };
 
-        let mut tiles: Vec<CropTile> = Vec::with_capacity((color_tiles_x * color_tiles_y) as usize);
+        let mut tiles: Vec<Tile> = Vec::with_capacity((color_tiles_x * color_tiles_y) as usize);
 
         for grid_y in 0..full_color_tiles_y {
             for grid_x in 0..full_color_tiles_x {
@@ -130,7 +191,7 @@ impl CropSetting {
                 let start_y = (grid_y * tile_height) + cropped_start_y;
                 let end_y = start_y + tile_height;
 
-                tiles.push(CropTile { start_x, end_x, start_y, end_y });
+                tiles.push(Tile { start_x, end_x, start_y, end_y });
             }
         }
 
@@ -153,6 +214,7 @@ impl CropSetting {
         }
     }
 
+    /// Returns all available Crops for a specific video aspect ratio and given color tile layout
     pub fn all_crops(frame_width: u32, frame_height: u32, color_tiles_x: u8, color_tiles_y: u8) -> Result<Vec<Self>> {
         let aspect_ratio = AspectRatio::new(frame_width, frame_height);
 
@@ -177,46 +239,6 @@ impl CropSetting {
         ]
     }
 }
-
-#[derive(Debug, Clone)]
-pub struct CropTile {
-    pub start_x: u32,
-    pub end_x: u32,
-    pub start_y: u32,
-    pub end_y: u32,
-}
-
-impl CropTile {
-    pub fn dimensions(&self) -> (u32, u32) {
-        let width = self.end_x - self.start_x;
-        let height = self.end_y - self.start_y;
-
-        (width, height)
-    }
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CropLevel {
-    Essential = 1,
-    Moderate = 2,
-    Aggressive = 3,
-}
-
-impl TryFrom<u8> for CropLevel {
-    type Error = u8;
-
-    fn try_from(value: u8) -> std::prelude::v1::Result<Self, Self::Error> {
-        match value {
-            1 => Ok(Self::Essential),
-            2 => Ok(Self::Moderate),
-            3 => Ok(Self::Aggressive),
-            invalid => Err(invalid),
-        }
-    }
-}
-
-// 104 vs 232
 
 #[cfg(test)]
 mod tests {

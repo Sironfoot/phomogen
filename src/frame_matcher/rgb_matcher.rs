@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{app::VideoColorIndexDatabase, ffmpeg::crops::CropLevel, frame_matcher::{Color, FrameMatch, ImageTile, MatcherAlgorithm}};
+use crate::{app::VideoColorIndexDatabase, ffmpeg::CropLevel, frame_matcher::{Color, FrameMatch, ImageTile, MatcherAlgorithm}};
 
 pub struct RgbMatcher {
     pub red_bias: u8,

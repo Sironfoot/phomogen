@@ -22,7 +22,7 @@ use std::{collections::HashMap, sync::{Arc, atomic::{AtomicUsize, Ordering}, mps
 
 use anyhow::Result;
 
-use crate::{app::VideoColorIndexDatabase, ffmpeg::crops::CropLevel};
+use crate::{app::VideoColorIndexDatabase, ffmpeg::CropLevel};
 
 pub trait MatcherAlgorithm: Send {
     fn find_nearest_frame(&self,

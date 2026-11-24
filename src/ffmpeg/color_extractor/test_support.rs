@@ -1,7 +1,7 @@
 use image::{Rgb, RgbImage};
 
 use super::FrameColorExtractionAlgorithm;
-use crate::ffmpeg::crops::CropSetting;
+use crate::ffmpeg::CropSetting;
 
 pub(super) fn assert_correct_color_averages<A>(create_algorithm: impl FnOnce(u32, u32, Vec<CropSetting>) -> A)
 where

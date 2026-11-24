@@ -20,7 +20,7 @@ use std::io::Write as IoWrite;
 use anyhow::Result;
 
 use crate::{app::SystemInfo, ffmpeg::VideoMetadata};
-use crate::ffmpeg::crops::CropSetting;
+use crate::ffmpeg::CropSetting;
 
 const BYTES_PER_PIXEL: u32 = 3;
 const DEFAULT_RESIZE_WIDTH: u32 = 1920;

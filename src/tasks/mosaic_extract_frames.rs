@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs, io::{BufWriter, Write}, sync::{Arc, atomic::{AtomicUsize, Ordering}, mpsc::{self, Receiver}}, thread::{self, JoinHandle}};
 
-use crate::{app::{App, MosaicTilingOption}, ffmpeg::{crops::CropSetting, frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch}}};
+use crate::{app::{App, MosaicTilingOption}, ffmpeg::{CropSetting, frame_extractor::{FrameExtractor, ImageTileData, VideoFrameMatch}}};
 
 use anyhow::Result;
 use image::{DynamicImage, ImageBuffer, ImageEncoder, Rgb, codecs::png::PngEncoder, imageops};

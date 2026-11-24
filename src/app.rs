@@ -23,7 +23,7 @@ pub use video_color_index_database::VideoColorIndexDatabase;
 pub use video_file::VideoFile;
 pub use video_indexing_report::{VideoIndexCore, VideoIndexingReport, VideoIndexStatus};
 
-use crate::{ffmpeg::{color_extractor::ColorExtractionAlgorithm, crops::CropLevel}, frame_matcher::{Color, FrameMatcherAlgorithm}};
+use crate::{ffmpeg::{color_extractor::ColorExtractionAlgorithm, CropLevel}, frame_matcher::{Color, FrameMatcherAlgorithm}};
 
 use std::{fs, ops::Add, path::{Path, PathBuf}, time::{Duration, Instant}};
 

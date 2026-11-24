@@ -1,6 +1,6 @@
 use crate::ffmpeg::{
     color_extractor::FrameColorExtractionAlgorithm,
-    crops::CropSetting
+    CropSetting
 };
 
 use super::compute_output_buffer_size;

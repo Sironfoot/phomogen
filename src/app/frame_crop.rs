@@ -1,4 +1,4 @@
-use crate::{ffmpeg::crops::CropSetting, frame_matcher::{Color, OklabColor}};
+use crate::{ffmpeg::CropSetting, frame_matcher::{Color, OklabColor}};
 
 use anyhow::Result;
 

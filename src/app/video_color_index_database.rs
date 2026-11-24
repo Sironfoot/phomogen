@@ -1,4 +1,4 @@
-use crate::{app::frame_data::FrameData, ffmpeg::crops::CropSetting};
+use crate::{app::frame_data::FrameData, ffmpeg::CropSetting};
 
 pub struct VideoColorIndexDatabase {
     pub color_tiles_x: u32,

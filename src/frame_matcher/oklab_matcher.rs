@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{app::VideoColorIndexDatabase, ffmpeg::crops::CropLevel, frame_matcher::{FrameMatch, ImageTile, MatcherAlgorithm, OklabColor}};
+use crate::{app::VideoColorIndexDatabase, ffmpeg::CropLevel, frame_matcher::{FrameMatch, ImageTile, MatcherAlgorithm, OklabColor}};
 
 pub struct OklabMatcher {
     pub lightness_weight: f32,
@@ -90,12 +90,12 @@ impl MatcherAlgorithm for OklabMatcher {
                                 match_found_in_database = true;
                             }
 
+                            // check flipped
                             let sub_grid_flipped = match frame_crop.extract_sub_grid_flipped_oklab(x, y, crop) {
                                 Ok(colors) => colors,
                                 Err(err) => panic!("Error: {}", err),
                             };
 
-                            // check flipped
                             let flipped_distance = self.check_distance(sub_grid_flipped, candidate_colors);
 
                             if flipped_distance < smallest_distance {

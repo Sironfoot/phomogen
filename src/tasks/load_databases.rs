@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::File, io::{self, BufRead}, sync::mpsc::{self, Receiver}, thread};
 
-use crate::{app::{App, FrameCrop, VideoColorIndexDatabase, frame_data::FrameData}, ffmpeg::crops::CropSetting, frame_matcher::{Color, FrameMatcherAlgorithm, OklabColor}};
+use crate::{app::{App, FrameCrop, VideoColorIndexDatabase, frame_data::FrameData}, ffmpeg::CropSetting, frame_matcher::{Color, FrameMatcherAlgorithm, OklabColor}};
 
 pub struct LoadDatabaseProgressReport {
     pub video_file_name: String,
@@ -29,7 +29,9 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
 
         let crops = CropSetting::all_crops(
             video.metadata.width,
-            video.metadata.height, app.color_tiles_x as u8, app.color_tiles_y as u8);
+            video.metadata.height,
+            app.color_tiles_x as u8,
+            app.color_tiles_y as u8);
         
         let crops = match crops {
             Ok(crops) => crops,
@@ -87,7 +89,7 @@ pub fn run(app: &App) -> Receiver<LoadDatabaseProgressReport> {
                     continue;
                 };
 
-                // find the crop setting (50%, 66.666% etc.)
+                // find the crop setting (50%, 60%, 70% etc.)
                 let Some(crop) = crops.iter()
                     .find(|c| c.resize_percentage() == resize_percentage) else {
                     dropped_frames += 1;
