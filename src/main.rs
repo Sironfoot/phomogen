@@ -27,7 +27,7 @@ use anyhow::Result;
 use crate::app::{App, AppStage, GenerateMosaicSubStage, ImageFile, SystemInfo, TileShape, VideoIndexStatus, VideoIndexingReport};
 use crate::frame_matcher::FrameMatcherAlgorithm;
 use crate::ffmpeg::color_extractor::{ColorExtractionAlgorithm};
-use crate::ffmpeg::crops::CropLevel;
+use crate::ffmpeg::CropLevel;
 use crate::tasks::mosaic_build_image;
 use crate::ui::render_ui;
 use crate::images::PreviewImage;
@@ -50,7 +50,7 @@ fn main() -> Result<()> {
     const DISABLE_AGGRESIVE_CROPS: bool = false;
     const DISABLE_ALL_CROPS: bool = false;
     const FRAME_MATCHER_ALGORITHM: FrameMatcherAlgorithm = 
-        //FrameMatcherAlgorithm::OklabWeighted { lightness_weight: 10.0, chroma_weight: 1.0 };
+        //FrameMatcherAlgorithm::OklabWeighted { lightness_weight: 2.0, chroma_weight: 1.0 };
         FrameMatcherAlgorithm::RgbWeighted { red_bias: 3, green_bias: 6, blue_bias: 1 };
 
     let wk_dir = TEST_DIR;
