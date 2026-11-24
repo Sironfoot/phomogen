@@ -9,14 +9,14 @@ pub struct RgbMatcher {
 }
 
 impl RgbMatcher {
-    fn check_distance<'color, I>(&self, frame_colors: I, candidate: &ImageTile, current_smallest_distance: u64) -> u64
+    fn check_distance<'color, I>(&self, frame_colors: I, candidate_colors: &[Color], current_smallest_distance: u64) -> u64
     where
         I: IntoIterator<Item = &'color Color>,
     {
         let mut frame_colors = frame_colors.into_iter();
         let mut distance: u64 = 0;
 
-        for image_color in &candidate.colors {
+        for image_color in candidate_colors {
             let Some(frame_color) = frame_colors.next() else {
                 return u64::MAX;
             };
@@ -42,6 +42,8 @@ impl MatcherAlgorithm for RgbMatcher {
         databases: &HashMap<String, Arc<VideoColorIndexDatabase>>,
         allowed_crops: &Vec<CropLevel>
     ) -> FrameMatch {
+
+        let candidate_colors = &candidate.colors;
 
         let mut nearest_match = FrameMatch {
             tile_index,
@@ -74,7 +76,7 @@ impl MatcherAlgorithm for RgbMatcher {
                         for x in 0..crop.tile_right_shift() {
                             // check non-flipped
                             let sub_grid = frame_crop.extract_sub_grid(x, y, crop);
-                            let distance = self.check_distance(sub_grid, candidate, smallest_distance);
+                            let distance = self.check_distance(sub_grid, candidate_colors, smallest_distance);
 
                             if distance < smallest_distance {
                                 nearest_match.tile_index = tile_index;
@@ -90,7 +92,7 @@ impl MatcherAlgorithm for RgbMatcher {
 
                             // check flipped
                             let sub_grid_flipped = frame_crop.extract_sub_grid_flipped(x, y, crop);
-                            let flipped_distance = self.check_distance(sub_grid_flipped, candidate, smallest_distance);
+                            let flipped_distance = self.check_distance(sub_grid_flipped, candidate_colors, smallest_distance);
 
                             if flipped_distance < smallest_distance {
                                 nearest_match.tile_index = tile_index;
