@@ -159,6 +159,8 @@ impl ColorExtractor {
                 "-sn",
                 "-dn",
 
+                "-fps_mode", "passthrough",
+
                 // Raw RGB pixels
                 "-f", "rawvideo",
                 "-pix_fmt", "rgb24",
