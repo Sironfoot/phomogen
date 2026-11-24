@@ -8,7 +8,7 @@ pub struct OklabMatcher {
 }
 
 impl OklabMatcher {
-    fn check_distance<'color, I>(&self, frame_colors: I, oklab_colors: &[OklabColor]) -> f32
+    fn check_distance<'color, I>(&self, frame_colors: I, oklab_colors: &[OklabColor], current_smallest_distance: f32) -> f32
     where
         I: IntoIterator<Item = &'color OklabColor>,
     {
@@ -21,6 +21,12 @@ impl OklabMatcher {
             };
 
             distance += frame_color.distance_weighted(image_color, self.lightness_weight, self.chroma_weight);
+
+            // optimisation: bail out early if current accumulated
+            // distance is more than the current smallest distaqnce
+            if distance >= current_smallest_distance {
+                return f32::INFINITY;
+            }
         }
 
         distance
@@ -76,7 +82,7 @@ impl MatcherAlgorithm for OklabMatcher {
                                 Err(err) => panic!("Error: {}", err),
                             };
 
-                            let distance = self.check_distance(sub_grid, candidate_colors);
+                            let distance = self.check_distance(sub_grid, candidate_colors, smallest_distance);
 
                             if distance < smallest_distance {
                                 nearest_match.tile_index = tile_index;
@@ -96,7 +102,7 @@ impl MatcherAlgorithm for OklabMatcher {
                                 Err(err) => panic!("Error: {}", err),
                             };
 
-                            let flipped_distance = self.check_distance(sub_grid_flipped, candidate_colors);
+                            let flipped_distance = self.check_distance(sub_grid_flipped, candidate_colors, smallest_distance);
 
                             if flipped_distance < smallest_distance {
                                 nearest_match.tile_index = tile_index;
