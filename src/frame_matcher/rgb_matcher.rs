@@ -9,7 +9,7 @@ pub struct RgbMatcher {
 }
 
 impl RgbMatcher {
-    fn check_distance<'color, I>(&self, frame_colors: I, candidate: &ImageTile) -> u64
+    fn check_distance<'color, I>(&self, frame_colors: I, candidate: &ImageTile, current_smallest_distance: u64) -> u64
     where
         I: IntoIterator<Item = &'color Color>,
     {
@@ -23,6 +23,12 @@ impl RgbMatcher {
 
             distance += frame_color.distance_weighted(
                 image_color, self.red_bias, self.green_bias, self.blue_bias);
+
+            // optimisation: bail out early if current accumulated
+            // distance is more than the current smallest distaqnce
+            if distance >= current_smallest_distance {
+                return u64::MAX;
+            }
         }
 
         distance
@@ -63,15 +69,12 @@ impl MatcherAlgorithm for RgbMatcher {
                         .find(|c| c.resize_percentage() == frame_crop.resize_percentage && allowed_crops.contains(&c.crop_level))
                     else { continue; };
 
+                    // loop through each cropped area across the grid
                     for y in 0..crop.tile_down_shift() {
                         for x in 0..crop.tile_right_shift() {
                             // check non-flipped
-                            let sub_grid = match frame_crop.extract_sub_grid(x, y, crop) {
-                                Ok(colors) => colors,
-                                Err(err) => panic!("Error: {}", err),
-                            };
-
-                            let distance = self.check_distance(sub_grid, candidate);
+                            let sub_grid = frame_crop.extract_sub_grid(x, y, crop);
+                            let distance = self.check_distance(sub_grid, candidate, smallest_distance);
 
                             if distance < smallest_distance {
                                 nearest_match.tile_index = tile_index;
@@ -86,12 +89,8 @@ impl MatcherAlgorithm for RgbMatcher {
                             }
 
                             // check flipped
-                            let sub_grid_flipped = match frame_crop.extract_sub_grid_flipped(x, y, crop) {
-                                Ok(colors) => colors,
-                                Err(err) => panic!("Error: {}", err),
-                            };
-
-                            let flipped_distance = self.check_distance(sub_grid_flipped, candidate);
+                            let sub_grid_flipped = frame_crop.extract_sub_grid_flipped(x, y, crop);
+                            let flipped_distance = self.check_distance(sub_grid_flipped, candidate, smallest_distance);
 
                             if flipped_distance < smallest_distance {
                                 nearest_match.tile_index = tile_index;

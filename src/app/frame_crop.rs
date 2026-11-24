@@ -19,50 +19,36 @@ impl FrameCrop {
         }
     }
 
-    fn calculate_sub_grid_values(&self, start_x: u8, start_y: u8, crop: &CropSetting, total_colors: usize) -> Result<(usize, usize, usize, usize, usize)> {
+    fn calculate_sub_grid_values(&self, start_x: u8, start_y: u8, crop: &CropSetting) -> (usize, usize, usize, usize, usize) {
         let full_width = crop.full_color_tiles_x() as usize;
-        let full_height = crop.full_color_tiles_y() as usize;
 
         let width = crop.color_tiles_x() as usize;
         let height = crop.color_tiles_y() as usize;
 
         let start_x = start_x as usize;
-        let end_x = start_x + width;
 
         let start_y = start_y as usize;
         let end_y = start_y + height;
 
-        anyhow::ensure!(
-            end_x <= full_width && end_y <= full_height,
-            "Sub-grid ({start_x}, {start_y})..({end_x}, {end_y}) exceeds grid bounds ({full_width}, {full_height})"
-        );
-
-        let last_end = ((end_y - 1) * full_width) + end_x;
-        anyhow::ensure!(
-            last_end <= total_colors,
-            "Sub-grid requires {last_end} colors, but only {total_colors} are available"
-        );
-
-        Ok((full_width, width, start_x, start_y, end_y))
+        (full_width, width, start_x, start_y, end_y)
     }
 
-    fn extract_sub_grid_rows(&self, start_x: u8, start_y: u8, crop: &CropSetting) -> Result<impl Iterator<Item = &[Color]> + Clone + '_> {
-        let total_colors = self.colors.len();
+    fn extract_sub_grid_rows(&self, start_x: u8, start_y: u8, crop: &CropSetting) -> impl Iterator<Item = &[Color]> + Clone + '_ {
         let (full_width, width, start_x, start_y, end_y) =
-            self.calculate_sub_grid_values(start_x, start_y, crop, total_colors)?;
+            self.calculate_sub_grid_values(start_x, start_y, crop);
 
-        Ok((start_y..end_y).map(move |y| {
+        (start_y..end_y).map(move |y| {
             let start = (y * full_width) + start_x;
             &self.colors[start..start + width]
-        }))
+        })
     }
 
-    pub fn extract_sub_grid(&self, start_x: u8, start_y: u8, crop: &CropSetting) -> Result<impl Iterator<Item = &Color> + '_> {
-        Ok(self.extract_sub_grid_rows(start_x, start_y, crop)?.flat_map(|row| row.iter()))
+    pub fn extract_sub_grid(&self, start_x: u8, start_y: u8, crop: &CropSetting) -> impl Iterator<Item = &Color> + '_ {
+        self.extract_sub_grid_rows(start_x, start_y, crop).flat_map(|row| row.iter())
     }
 
-    pub fn extract_sub_grid_flipped(&self, start_x: u8, start_y: u8, crop: &CropSetting) -> Result<impl Iterator<Item = &Color> + '_> {
-        Ok(self.extract_sub_grid_rows(start_x, start_y, crop)?.flat_map(|row| row.iter().rev()))
+    pub fn extract_sub_grid_flipped(&self, start_x: u8, start_y: u8, crop: &CropSetting) -> impl Iterator<Item = &Color> + '_ {
+        self.extract_sub_grid_rows(start_x, start_y, crop).flat_map(|row| row.iter().rev())
     }
 
     fn extract_sub_grid_rows_oklab(&self, start_x: u8, start_y: u8, crop: &CropSetting) -> Result<impl Iterator<Item = &[OklabColor]> + Clone + '_> {
@@ -73,9 +59,8 @@ impl FrameCrop {
             },
         };
         
-        let total_colors = oklab_colors.len();
         let (full_width, width, start_x, start_y, end_y) =
-            self.calculate_sub_grid_values(start_x, start_y, crop, total_colors)?;
+            self.calculate_sub_grid_values(start_x, start_y, crop);
 
         Ok((start_y..end_y).map(move |y| {
             let start = (y * full_width) + start_x;
@@ -119,7 +104,7 @@ mod tests {
         let (frame_crop, crop) = get_frame_crop(50);
 
         // top left
-        let top_left_colors: Vec<_> = frame_crop.extract_sub_grid(0, 0, &crop).unwrap().collect();
+        let top_left_colors: Vec<_> = frame_crop.extract_sub_grid(0, 0, &crop).collect();
         assert_eq!(top_left_colors[0].r, 0, "top_left grid: color at top/left corner should be 0");
         assert_eq!(top_left_colors[7].r, 7, "top_left grid: color at top/right corner should be 7");
         assert_eq!(top_left_colors[56].r, 112, "top_left grid: color at bottom/left corner should be 112");
@@ -132,7 +117,7 @@ mod tests {
         assert_eq!(top_left_oklab[63].l, 119.0, "top_left (Oklab)grid: color at bottom/right corner should be 119");
 
         // top right
-        let top_right_colors: Vec<_> = frame_crop.extract_sub_grid(8, 0, &crop).unwrap().collect();
+        let top_right_colors: Vec<_> = frame_crop.extract_sub_grid(8, 0, &crop).collect();
         assert_eq!(top_right_colors[0].r, 8, "top_right grid: color at top/left corner should be 8");
         assert_eq!(top_right_colors[7].r, 15, "top_right grid: color at top/right corner should be 15");
         assert_eq!(top_right_colors[56].r, 120, "top_right grid: color at bottom/left corner should be 120");
@@ -145,7 +130,7 @@ mod tests {
         assert_eq!(top_right_oklab[63].l, 127.0, "top_right (Oklab) grid: color at bottom/right corner should be 127");
 
         // bottom left
-        let bottom_left_colors: Vec<_> = frame_crop.extract_sub_grid(0, 8, &crop).unwrap().collect();
+        let bottom_left_colors: Vec<_> = frame_crop.extract_sub_grid(0, 8, &crop).collect();
         assert_eq!(bottom_left_colors[0].r, 128, "bottom_left grid: color at top/left corner should be 128");
         assert_eq!(bottom_left_colors[7].r, 135, "bottom_left grid: color at top/right corner should be 135");
         assert_eq!(bottom_left_colors[56].r, 240, "bottom_left grid: color at bottom/left corner should be 240");
@@ -158,7 +143,7 @@ mod tests {
         assert_eq!(bottom_left_oklab[63].l, 247.0, "bottom_left (Oklab) grid: color at bottom/right corner should be 247");
 
         // bottom right
-        let bottom_right_colors: Vec<_> = frame_crop.extract_sub_grid(8, 8, &crop).unwrap().collect();
+        let bottom_right_colors: Vec<_> = frame_crop.extract_sub_grid(8, 8, &crop).collect();
         assert_eq!(bottom_right_colors[0].r, 136, "bottom_right grid: color at top/left corner should be 136");
         assert_eq!(bottom_right_colors[7].r, 143, "bottom_right grid: color at top/right corner should be 143");
         assert_eq!(bottom_right_colors[56].r, 248, "bottom_right grid: color at bottom/left corner should be 248");
@@ -176,7 +161,7 @@ mod tests {
         let (frame_crop, crop) = get_frame_crop(50);
 
         // top left
-        let top_left_colors: Vec<_> = frame_crop.extract_sub_grid_flipped(0, 0, &crop).unwrap().collect();
+        let top_left_colors: Vec<_> = frame_crop.extract_sub_grid_flipped(0, 0, &crop).collect();
         assert_eq!(top_left_colors[0].r, 7, "top_left grid: color at top/left corner should be 7");
         assert_eq!(top_left_colors[7].r, 0, "top_left grid: color at top/right corner should be 0");
         assert_eq!(top_left_colors[56].r, 119, "top_left grid: color at bottom/left corner should be 119");
@@ -189,7 +174,7 @@ mod tests {
         assert_eq!(top_left_oklab[63].l, 112.0, "top_left (Oklab) grid: color at bottom/right corner should be 112");
 
         // top right
-        let top_right_colors: Vec<_> = frame_crop.extract_sub_grid_flipped(8, 0, &crop).unwrap().collect();
+        let top_right_colors: Vec<_> = frame_crop.extract_sub_grid_flipped(8, 0, &crop).collect();
         assert_eq!(top_right_colors[0].r, 15, "top_right grid: color at top/left corner should be 15");
         assert_eq!(top_right_colors[7].r, 8, "top_right grid: color at top/right corner should be 8");
         assert_eq!(top_right_colors[56].r, 127, "top_right grid: color at bottom/left corner should be 127");
@@ -202,7 +187,7 @@ mod tests {
         assert_eq!(top_right_oklab[63].l, 120.0, "top_right (Oklab) grid: color at bottom/right corner should be 120");
 
         // bottom left
-        let bottom_left_colors: Vec<_> = frame_crop.extract_sub_grid_flipped(0, 8, &crop).unwrap().collect();
+        let bottom_left_colors: Vec<_> = frame_crop.extract_sub_grid_flipped(0, 8, &crop).collect();
         assert_eq!(bottom_left_colors[0].r, 135, "bottom_left grid: color at top/left corner should be 135");
         assert_eq!(bottom_left_colors[7].r, 128, "bottom_left grid: color at top/right corner should be 128");
         assert_eq!(bottom_left_colors[56].r, 247, "bottom_left grid: color at bottom/left corner should be 247");
@@ -215,7 +200,7 @@ mod tests {
         assert_eq!(bottom_left_oklab[63].l, 240.0, "bottom_left (Oklab) grid: color at bottom/right corner should be 240");
 
         // bottom right
-        let bottom_right_colors: Vec<_> = frame_crop.extract_sub_grid_flipped(8, 8, &crop).unwrap().collect();
+        let bottom_right_colors: Vec<_> = frame_crop.extract_sub_grid_flipped(8, 8, &crop).collect();
         assert_eq!(bottom_right_colors[0].r, 143, "bottom_right grid: color at top/left corner should be 143");
         assert_eq!(bottom_right_colors[7].r, 136, "bottom_right grid: color at top/right corner should be 136");
         assert_eq!(bottom_right_colors[56].r, 255, "bottom_right grid: color at bottom/left corner should be 255");
